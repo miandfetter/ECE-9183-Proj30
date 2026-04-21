@@ -1,0 +1,8 @@
+{
+  "rougeL": 0.10,
+  "rouge1": 0.16,
+  "rouge2": 0.03,
+  "measured_on": "5 bucket meetings",
+  "model": "facebook/bart-large-cnn",
+  "notes": "Pretrained baseline, no fine-tuning. Committed as gate reference."
+}

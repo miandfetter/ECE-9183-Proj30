@@ -1,0 +1,7 @@
+--- example 0 ---
+PRED: Riya: Hello my name is Riya. Sam: We discussed project timeline and deployment. Riya: We discuss project timeline. Sam says we discussed project Timeline and deployment and deployment, and we agreed to work together. Riyas: We agreed to collaborate on the project timeline, and discussed deployment.
+REF:  Riya introduced herself and the team discussed the project timeline and deployment.
+
+--- example 1 ---
+PRED: Sam: We need to finish the report by Friday. Riya: I will handle deployment. Sam: We will finish the reports by Friday, Riya will handle the deployment. Riyas: We have to finish it by Friday or we will be in trouble.
+REF:  The team discussed finishing the report by Friday, and Riya took the deployment work.

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "1",
+    "transcript": "Riya: Hello my name is Riya. Sam: We discussed project timeline and deployment.",
+    "summary": "Riya introduced herself and the team discussed the project timeline and deployment.",
+    "source": "local_sample_1"
+  },
+  {
+    "id": "2",
+    "transcript": "Sam: We need to finish the report by Friday. Riya: I will handle deployment.",
+    "summary": "The team discussed finishing the report by Friday, and Riya took the deployment work.",
+    "source": "local_sample_2"
+  }
+]

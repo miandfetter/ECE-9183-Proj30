@@ -1,0 +1,7 @@
+--- example 0 ---
+PRED: Riya: Hello my name is Riya. Sam: We discussed project timeline and deployment. Riya: We discuss project timeline, deployment. Sam says: We'll talk about that later. Riyas: I'm Riya, I'm a female. Sam asks: What do you want to do with me? Riya says: I want to be a doctor.
+REF:  Riya introduced herself and the team discussed the project timeline and deployment.
+
+--- example 1 ---
+PRED: Sam: We need to finish the report by Friday. Riya: I will handle deployment. Sam: We will finish the reports by Friday, Riya will handle the deployment. Riyas: I am ready. Sam and Riya are ready. Riyah: I'm ready.
+REF:  The team discussed finishing the report by Friday, and Riya took the deployment work.
