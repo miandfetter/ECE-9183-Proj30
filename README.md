@@ -74,14 +74,35 @@ ssh -i ~/.ssh/r_mac \
 
 ---
 
-## 🌐 Access Services Locally
+## 🌐 Access Services (via Chameleon Cloud)
 
-| Service    | URL                   |
-| ---------- | --------------------- |
-| MiroTalk   | http://localhost:3000 |
-| FastAPI    | http://localhost:8000 |
-| Prometheus | http://localhost:9090 |
-| Grafana    | http://localhost:3001 |
+All services are running on the **Chameleon Cloud VM**, but are accessed locally using **SSH port forwarding**.
+
+| Service    | Local URL (via SSH Tunnel) | Runs on Chameleon             |
+| ---------- | -------------------------- | ----------------------------- |
+| MiroTalk   | http://localhost:3000      | Port 3000                     |
+| FastAPI    | http://localhost:8000      | Port 8000                     |
+| Prometheus | http://localhost:9090      | Port 9090                     |
+| Grafana    | http://localhost:3001      | Port 3000 (Grafana container) |
+
+---
+
+### 💬 Explanation
+
+> Although the services run on the Chameleon Cloud VM, they are accessed through localhost using SSH port forwarding. This maps local ports to the corresponding services running remotely on the VM.
+
+---
+
+### 🔁 Mapping Example
+
+```text
+Local Machine (Mac)         Chameleon VM
+---------------------      ---------------------
+localhost:3000   ───────→  MiroTalk (3000)
+localhost:8000   ───────→  FastAPI (8000)
+localhost:9090   ───────→  Prometheus (9090)
+localhost:3001   ───────→  Grafana (3000)
+```
 
 ---
 
