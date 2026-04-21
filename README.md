@@ -290,26 +290,7 @@ The pipeline:
 
 ---
 
-## Repository Structure
 
-```
-ECE-9183-Proj30/
-├── training/
-│   ├── train.py                   # End-to-end training script
-│   ├── retrain_trigger.py         # Cron-triggered retraining (SSHes into GPU node)
-│   ├── promote.py                 # Manually promote staging → production
-│   ├── rollback.py                # Roll back production to a previous version
-│   ├── Dockerfile                 # GPU training container (PyTorch + CUDA)
-│   └── requirements.txt           # Python dependencies
-├── docker/
-│   └── docker-compose-mlflow.yaml # MLflow server + PostgreSQL
-├── infra/
-│   └── MLflow_GPU_setup.ipynb     # One-time infrastructure setup — run this
-├── baseline_scores.json           # Committed gate threshold
-└── README.md
-```
-
----
 
 ## Prerequisites
 
