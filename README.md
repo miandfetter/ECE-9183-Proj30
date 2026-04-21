@@ -6,8 +6,8 @@
 
 This project integrates:
 
-* **MiroTalk (Node.js)** → real-time meeting + transcript (Port **3000**)
-* **FastAPI (Python)** → ML summarization backend (Port **8000**)
+* **MiroTalk (Node.js)** → real-time meeting + transcript (**Port 3000**)
+* **FastAPI (Python)** → ML summarization backend (**Port 8000**)
 * **Transformer-based model (PEFT + Hugging Face)**
 * **Prometheus + Grafana** → monitoring
 
@@ -42,7 +42,7 @@ mirotalk/
 ├── rollback/        # rollback logic
 ├── client/          # frontend
 ├── server/          # Node backend
-├── widgets/         # UI
+├── widgets/         # UI components
 ├── public/          # static assets
 ├── src/             # core logic
 ```
@@ -51,11 +51,37 @@ mirotalk/
 
 # 🚀 How to Run the Project
 
-## 🖥️ Step 1 — SSH into Chameleon
+## 🖥️ Step 1 — Connect to Chameleon VM (with Port Forwarding)
+
+In a typical setup, we would connect using:
 
 ```bash
 ssh -i ~/.ssh/r_mac cc@<VM-IP>
 ```
+
+We attempted to expose the application via the VM’s public IP by updating the security group to allow inbound traffic on ports such as **3000** and **8000**. However, the services were still not accessible externally, likely due to network or firewall constraints in the environment.
+
+To ensure stable and reliable access, we used **SSH port forwarding**:
+
+```bash
+ssh -i ~/.ssh/r_mac \
+  -L 3000:localhost:3000 \
+  -L 8000:localhost:8000 \
+  -L 9090:localhost:9090 \
+  -L 3001:localhost:3001 \
+  cc@129.114.25.170
+```
+
+---
+
+## 🌐 Access Services Locally
+
+| Service    | URL                   |
+| ---------- | --------------------- |
+| MiroTalk   | http://localhost:3000 |
+| FastAPI    | http://localhost:8000 |
+| Prometheus | http://localhost:9090 |
+| Grafana    | http://localhost:3001 |
 
 ---
 
@@ -65,12 +91,6 @@ ssh -i ~/.ssh/r_mac cc@<VM-IP>
 cd ~/mirotalk
 npm install
 npm start
-```
-
-Runs on:
-
-```
-http://localhost:3000   (inside VM)
 ```
 
 ---
@@ -87,52 +107,9 @@ python -m pip install fastapi uvicorn torch transformers peft sentencepiece acce
 python -m uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Runs on:
-
-```
-http://localhost:8000   (inside VM)
-```
-
 ---
 
-## 🔐 Step 4 — Access via SSH Tunnel (IMPORTANT)
-
-Due to **security group issues**, direct VM access using IP was unreliable.
-
-Instead of:
-
-```
-http://<VM-IP>:3000   ❌
-http://<VM-IP>:8000   ❌
-```
-
-We use SSH tunneling:
-
-```bash
-ssh -i ~/.ssh/r_mac \
-  -L 3000:localhost:3000 \
-  -L 8000:localhost:8000 \
-  -L 9090:localhost:9090 \
-  -L 3001:localhost:3001 \
-  cc@<VM-IP>
-```
-
----
-
-## 🌐 Step 5 — Open in Browser
-
-| Service    | URL                   |
-| ---------- | --------------------- |
-| MiroTalk   | http://localhost:3000 |
-| FastAPI    | http://localhost:8000 |
-| Prometheus | http://localhost:9090 |
-| Grafana    | http://localhost:3001 |
-
----
-
-# 🔗 API Integration
-
-Inside MiroTalk backend:
+## 🔗 API Integration
 
 ```js
 fetch("http://127.0.0.1:8000/summarize", {
@@ -140,16 +117,9 @@ fetch("http://127.0.0.1:8000/summarize", {
 
 ---
 
-# 🧠 Fallback Mechanism (IMPORTANT)
+# 🧠 Fallback Mechanism
 
-To ensure reliability, a **fallback mechanism** is implemented.
-
-If the ML model fails (timeout, error, or empty output):
-
-* system returns **basic extractive summary**
-* or returns **formatted transcript**
-
-Example fallback:
+To ensure reliability, a fallback mechanism is implemented.
 
 ```python
 try:
@@ -158,39 +128,36 @@ except:
     summary = simple_summary(transcript)
 ```
 
----
+### Why fallback is important
 
-## 🎯 Why Fallback is Needed
-
+* ensures a response is always returned
 * prevents API failures
-* ensures response is always returned
 * improves user experience
-* avoids blank summaries
 
 ---
 
-# 📊 Monitoring with Prometheus & Grafana
+# 📊 Monitoring (Prometheus + Grafana)
 
-## Overview
+## Architecture
 
-* **Prometheus** → collects metrics
-* **Grafana** → visualizes metrics
+```
+FastAPI → /metrics → Prometheus → Grafana
+```
 
 ---
 
-## Backend Metrics
+## Metrics (FastAPI)
 
 ```python
 from prometheus_client import Counter, Histogram
 
 api_requests_total = Counter("api_requests_total", "Total API Requests")
-
 request_latency = Histogram("request_latency_seconds", "Latency")
 ```
 
 ---
 
-## Prometheus Setup
+## Run Prometheus
 
 ```bash
 docker run -d -p 9090:9090 \
@@ -200,7 +167,7 @@ prom/prometheus
 
 ---
 
-## Grafana Setup
+## Run Grafana
 
 ```bash
 docker run -d -p 3001:3000 grafana/grafana
@@ -228,7 +195,7 @@ histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[1m])) by (le))
 
 | Metric            | Purpose     |
 | ----------------- | ----------- |
-| Request count     | load        |
+| Request count     | system load |
 | latency (p50/p95) | performance |
 | throughput        | scalability |
 | failures          | reliability |
@@ -239,14 +206,13 @@ histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[1m])) by (le))
 
 ## Promote model if:
 
-* latency stable
-* error rate low
-* user feedback positive
+* latency remains stable
+* error rate is low
 
-## Rollback if:
+## Rollback model if:
 
-* error spikes
-* latency exceeds SLA
+* error rate increases significantly
+* latency exceeds threshold
 * fallback usage increases
 
 ---
@@ -265,13 +231,13 @@ histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[1m])) by (le))
 
 * Port **3000 → MiroTalk**
 * Port **8000 → FastAPI**
-* SSH tunneling used due to security restrictions
+* SSH tunneling is used due to network and security constraints
 
 ---
 
 # 💬 Explanation (for demo)
 
-> MiroTalk captures real-time transcripts and sends them to a FastAPI backend. The ML model generates summaries, and a fallback mechanism ensures reliability. Prometheus and Grafana are used to monitor system performance, and SSH tunneling is used to securely access services.
+> MiroTalk captures real-time transcripts and sends them to a FastAPI backend, where a transformer-based model generates summaries. A fallback mechanism ensures reliability, and Prometheus with Grafana is used to monitor system performance.
 
 ---
 
@@ -282,9 +248,10 @@ histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[1m])) by (le))
 ✔ ML model integrated
 ✔ Fallback implemented
 ✔ Monitoring enabled
-✔ End-to-end pipeline functional
+✔ End-to-end pipeline complete
 
 ---
+
 
 # Proj30 — MiroTalk Meeting Summarization: Training Pipeline
 
