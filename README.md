@@ -59,7 +59,7 @@ In a typical setup, we would connect using:
 ssh -i ~/.ssh/r_mac cc@<VM-IP>
 ```
 
-We attempted to expose the application via the VM’s public IP by updating the security group to allow inbound traffic on ports such as **3000** and **8000**. However, the services were still not accessible externally, likely due to network or firewall constraints in the environment.
+Due to WebRTC security and networking constraints, the MiroTalk application could not be reliably accessed via the public IP address of the Chameleon Cloud instance.
 
 To ensure stable and reliable access, we used **SSH port forwarding**:
 
