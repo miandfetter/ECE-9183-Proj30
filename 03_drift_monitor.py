@@ -64,6 +64,7 @@ DEFAULT_REFERENCE = {
 
 
 def get_conn():
+    import swiftclient
     return swiftclient.Connection(
         auth_version="3",
         authurl=os.environ["OS_AUTH_URL"],
@@ -75,8 +76,6 @@ def get_conn():
         },
     )
 
-
-# ── Statistics helpers ────────────────────────────────────────────────────────
 
 def mean(values):
     return sum(values) / len(values) if values else 0.0
