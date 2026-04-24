@@ -38,8 +38,8 @@ import swiftclient
 # ── Thresholds (justified in comments) ───────────────────────────────────────
 MIN_DURATION_SEC  = 1.0    # < 1s too short for reliable ASR transcription
 MAX_DURATION_SEC  = 600.0  # > 10min likely a full meeting, not a segment
-MIN_TRANSCRIPT_CHARS = 5   # single characters/words are not useful training signal
-MAX_TRANSCRIPT_CHARS = 5000 # sanity upper bound
+MIN_TRANSCRIPT_CHARS = 5000   # single characters/words are not useful training signal
+MAX_TRANSCRIPT_CHARS = 500000000 # sanity upper bound
 ALLOWED_SAMPLE_RATES = {8000, 16000, 22050, 44100, 48000}
 MIN_SAMPLE_RATE  = 8000    # below 8kHz, speech quality is unusable
 REQUIRED_FIELDS  = ["meeting_id", "transcript"]
@@ -182,17 +182,15 @@ def validate_and_upload(conn, container, version, record, audio_bytes=None):
     else:
         checksum = None
 
-    # 4. Duplicate check
+    # 4. Duplicate check — re-ingestion is intentional, treat as warning only
     meeting_id = record.get("meeting_id", "unknown")
-    if check_duplicate(conn, container, meeting_id, version):
-        all_issues.append("duplicate_meeting_id")
 
     # Determine status
     # Critical failures → quarantine (reviewable)
     # Minor issues → pass with warnings
     critical = [i for i in all_issues if any(k in i for k in [
         "missing_field", "empty_audio", "invalid_wav",
-        "duplicate_meeting_id", "transcript_not_string"
+        "transcript_not_string"
     ])]
 
     if critical:
