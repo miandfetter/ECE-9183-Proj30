@@ -1,0 +1,40 @@
+FROM python:3.12-slim
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    libsndfile1 \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /pipeline
+
+RUN pip install --no-cache-dir \
+    datasets \
+    huggingface_hub \
+    soundfile \
+    python-swiftclient \
+    python-keystoneclient \
+    keystoneauth1 \
+    mlflow \
+    fastapi \
+    uvicorn \
+    python-multipart \
+    numpy \
+    requests
+
+COPY 01_ingest.py .
+COPY 02_preprocess.py .
+COPY 03_synthetic_data.py .
+COPY 03_drift_monitor.py .
+COPY 04_collect_feedback.py .
+COPY batch_pipeline.py .
+COPY run_pipeline.py .
+COPY dashboard.py .
+COPY 01_ingestion_validator.py .
+COPY 02_training_set_validator.py .
+
+ENV OS_REGION_NAME=CHI@TACC
+ENV MLFLOW_TRACKING_URI=http://129.114.27.29:8002
+ENV PYTHONPATH=/pipeline
+
+CMD ["python3", "run_pipeline.py", "--help"]
