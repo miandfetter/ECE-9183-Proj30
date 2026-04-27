@@ -271,7 +271,7 @@ def load_model_from_mlflow(alias: str = "production"):
     #     artifact_path="adapter",
     # )
     adapter_path= mlflow.artifacts.download_artifacts(
-    artifact_uri="models:/meeting-summarizer-bart-merged@production"
+    artifact_uri="models:/meeting-summarizer-bart-lora-recovered@production"
     )
 
     tokenizer = BartTokenizer.from_pretrained(BASE_MODEL_NAME)
