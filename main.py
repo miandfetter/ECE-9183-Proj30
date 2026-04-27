@@ -270,7 +270,7 @@ def load_model_from_mlflow(alias: str = "production"):
     #     run_id=run_id,
     #     artifact_path="adapter",
     # )
-    mlflow.artifacts.download_artifacts(
+    adapter_path= mlflow.artifacts.download_artifacts(
     artifact_uri="models:/meeting-summarizer-bart-merged@production"
     )
 
