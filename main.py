@@ -297,8 +297,12 @@ def auto_rollback_if_needed(latency_ms):
 
 
 def get_initial_model_bundle():
-    return load_fallback_model()
-    
+    try:
+        return load_model_from_mlflow(MODEL_ALIAS)
+    except Exception as e:
+        print(f"[model] MLflow load failed ({e}), using fallback")
+        return load_fallback_model()
+
 
 
 
@@ -546,10 +550,13 @@ async def recent_drift(limit: int = Query(10, ge=1, le=100)):
 
 @app.post("/reload")
 async def reload_model(req: ReloadRequest):
-    app.state.model_bundle = load_fallback_model()
+    try:
+        app.state.model_bundle = load_model_from_mlflow(req.alias)
+    except Exception as e:
+        print(f"[model] MLflow load failed ({e}), using fallback")
+        app.state.model_bundle = load_fallback_model()
     return {
         "status": "ok",
-        "message": "Fallback model loaded",
         "model_source": app.state.model_bundle["source"],
         "model_alias": app.state.model_bundle["alias"],
         "model_version": app.state.model_bundle["version"],
