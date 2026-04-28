@@ -171,13 +171,24 @@ def load_recent_inference_logs(conn, container, window_minutes=60):
       inference_logs/{date}/{request_id}.json
     """
     logs = []
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    prefix = f"inference_logs/{today}/"
+    all_objects = []
+
+    # Look back 14 days to find inference logs
+    from datetime import timedelta
+    for day_offset in range(14):
+        date = (datetime.now(timezone.utc) - timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        prefix = f"inference_logs/{date}/"
+        try:
+            _, objects = conn.get_container(container, prefix=prefix, full_listing=True)
+            if objects:
+                print(f"  Found {len(objects)} logs for {date}")
+                all_objects.extend(objects)
+        except Exception:
+            continue
 
     try:
-        _, objects = conn.get_container(container, prefix=prefix, full_listing=True)
         # Sort by last modified, take recent ones
-        recent = sorted(objects, key=lambda o: o.get("last_modified", ""), reverse=True)
+        recent = sorted(all_objects, key=lambda o: o.get("last_modified", ""), reverse=True)
         cutoff_count = max(100, len(recent))  # last 100 requests
 
         for obj in recent[:cutoff_count]:
