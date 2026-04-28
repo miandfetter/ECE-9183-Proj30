@@ -147,10 +147,20 @@ def preprocess(container, dataset_version):
         raw_text = transcript_obj.get("transcript", "")
         normalized = normalize_transcript(raw_text)
 
+        # Load summary from raw transcript
+        summary = ""
+        try:
+            _, raw_body = conn.get_object(container, f"raw/v{dataset_version}/{mid}/transcript.json")
+            raw_obj = json.loads(raw_body)
+            summary = raw_obj.get("summary", "")
+        except Exception:
+            pass
+
         transcript_out = json.dumps({
             "meeting_id": mid,
             "transcript_raw": raw_text,
             "transcript_normalized": normalized,
+            "summary": summary,
             "tokens": normalized.split(),
             "pipeline_version": PIPELINE_VERSION,
             "dataset_version": dataset_version,
