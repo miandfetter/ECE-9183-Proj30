@@ -68,6 +68,7 @@ def ingest(container, split, limit, dry_run=False):
         transcript_data = json.dumps({
             "meeting_id": meeting_id,
             "transcript": row.get("transcript", ""),
+            "summary": row.get("summary", ""),
             "words": row.get("words", []),
         }, indent=2).encode()
 
