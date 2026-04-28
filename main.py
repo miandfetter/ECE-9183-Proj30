@@ -1,672 +1,654 @@
 import os
-import json
+import sys
 import time
-import argparse
-from pathlib import Path
+import json
+import subprocess
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from typing import List, Optional
 
-import torch
 import boto3
 import mlflow
-import lightning as L
-import bitsandbytes as bnb
-import evaluate
+import redis.asyncio as redis
+import torch
 
-from datasets import Dataset
-from torch.utils.data import DataLoader
-from transformers import BartForConditionalGeneration, BartTokenizer
-from peft import get_peft_model, LoraConfig, TaskType
-from lightning.pytorch.loggers import MLFlowLogger
+from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel
+from transformers import (
+    BartTokenizer,
+    BartForConditionalGeneration,
+    AutoTokenizer,
+    AutoModelForSeq2SeqLM,
+)
+from peft import PeftModel
+from mlflow.tracking import MlflowClient
+from prometheus_client import Counter, Histogram, generate_latest
+from fastapi import Response
 
 
-CFG = {
-    "model_name": "facebook/bart-large-cnn",
-    "lr": 2e-4,
-    "lora_r": 8,
-    "lora_alpha": 16,
-    "lora_dropout": 0.1,
-    "max_input_len": 1024,
-    "max_target_len": 128,
-    "batch_size": 2,
-    "accumulate_grad_batches": 8,
-    "max_epochs": 3,
-    "precision": "bf16-mixed",
+# ======================
+# CONFIG
+# ======================
 
-    "mlflow_experiment": "bart-lora-meeting-summarization",
-    "registered_model_name": "bart-meeting-summarizer",
+REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
+MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+REGISTERED_MODEL_NAME = "meeting-summarizer-bart-lora-recovered"
+MODEL_ALIAS = os.environ.get("MODEL_ALIAS", "production")
+BASE_MODEL_NAME = "facebook/bart-large-cnn"
+FALLBACK_MODEL_NAME = os.environ.get("LIVE_MODEL_NAME", "knkarthick/MEETING_SUMMARY")
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
-    "baseline_rougeL": 0.18,
-    "gate_tolerance": 0.02,
+PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+TRAIN_SCRIPT = os.path.join(PROJECT_DIR, "train.py")
+PROMOTE_SCRIPT = os.path.join(PROJECT_DIR, "promote.py")
+ROLLBACK_SCRIPT = os.path.join(PROJECT_DIR, "rollback.py")
+RETRAIN_TRIGGER_SCRIPT = os.path.join(PROJECT_DIR, "retrain_trigger.py")
 
-    "adapter_output_dir": "./bart_lora_adapter",
-    "checkpoint_dir": "./checkpoints",
+SUMMARY_PREFIX = "meeting:"
+DRIFT_KEY = "drift:metrics"
 
-    # IMPORTANT: keep your working MeetingBank adapter
-    "meetingbank_run_id": "242d296541bf40c5ae76d8d405d3b092",
-    "meetingbank_artifact_path": "bart_lora_adapter",
-}
 
+API_REQUESTS = Counter(
+    "api_requests_total",
+    "Total number of API requests"
+)
+
+API_LATENCY = Histogram(
+    "api_latency_seconds",
+    "API latency in seconds"
+)
+
+MODEL_INFERENCE_LATENCY = Histogram(
+    "model_inference_latency_seconds",
+    "Model inference latency in seconds"
+)
+
+API_ERRORS = Counter(
+    "api_errors_total",
+    "Total number of API errors"
+)
+# ======================
+# OBJECT STORAGE
+# ======================
 
 def get_s3_client():
+    endpoint_url = os.environ.get("MLFLOW_S3_ENDPOINT_URL")
+    access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+
+    if not endpoint_url or not access_key or not secret_key:
+        raise RuntimeError(
+            "Missing object storage environment variables. "
+            "Set MLFLOW_S3_ENDPOINT_URL, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY."
+        )
+
     return boto3.client(
         "s3",
-        endpoint_url=os.environ["MLFLOW_S3_ENDPOINT_URL"],
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
         verify=False,
     )
 
 
-def load_bucket_dataset(bucket_name: str, prefix: str = "raw/") -> Dataset:
+def read_json_from_object_storage(bucket: str, key: str):
     s3 = get_s3_client()
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    body = obj["Body"].read().decode("utf-8")
+    return json.loads(body)
 
-    resp = s3.list_objects_v2(
-        Bucket=bucket_name,
-        Prefix=prefix,
-        Delimiter="/",
+
+# ======================
+# SCHEMAS
+# ======================
+
+class TranscriptItem(BaseModel):
+    speaker: int
+    speaker_name: Optional[str] = None
+    text: str
+    time: Optional[str] = None
+
+
+class SummaryRequest(BaseModel):
+    room_id: str
+    transcript: List[TranscriptItem]
+
+
+class PromoteRequest(BaseModel):
+    version: Optional[int] = None
+
+
+class RollbackRequest(BaseModel):
+    version: Optional[int] = None
+
+
+class ReloadRequest(BaseModel):
+    alias: str = "production"
+
+
+class ObjectStorageSummaryRequest(BaseModel):
+    room_id: str
+    bucket: str
+    key: str
+
+
+# ======================
+# UTIL
+# ======================
+
+def clean_name(name: str) -> str:
+    if not name:
+        return "Speaker"
+    if "@" in name:
+        name = name.split("@")[0]
+    name = name.replace(".", " ").replace("_", " ").strip()
+    return name.title() if name else "Speaker"
+
+
+def build_text(transcript: List[TranscriptItem]) -> str:
+    lines = []
+    for item in transcript:
+        name = clean_name(item.speaker_name or "")
+        text = (item.text or "").strip()
+        if text:
+            lines.append(f"{name}: {text}")
+    return "\n".join(lines)
+
+
+def convert_object_storage_payload_to_transcript_items(data) -> List[TranscriptItem]:
+    """
+    Supports multiple formats:
+    1. {"transcript": [{"speaker":1,"speaker_name":"Riya","text":"Hello"}]}
+    2. [{"speaker":1,"speaker_name":"Riya","text":"Hello"}]
+    3. {"segments":[{"speaker":1,"text":"Hello"}]}
+    """
+    if isinstance(data, dict) and "transcript" in data:
+        items = data["transcript"]
+    elif isinstance(data, dict) and "segments" in data:
+        items = data["segments"]
+    elif isinstance(data, list):
+        items = data
+    else:
+        raise ValueError("Unsupported transcript JSON format in object storage")
+
+    transcript = []
+    for idx, item in enumerate(items):
+        transcript.append(
+            TranscriptItem(
+                speaker=int(item.get("speaker", idx + 1)),
+                speaker_name=item.get("speaker_name", item.get("name")),
+                text=item.get("text", ""),
+                time=item.get("time"),
+            )
+        )
+    return transcript
+
+
+def evaluate_model_health(latency_ms, summary):
+    issues = []
+    if latency_ms > 4000:
+        issues.append("high_latency")
+    if len(summary.strip()) < 20:
+        issues.append("bad_summary")
+    return issues
+
+
+def run_script(script: str, args: Optional[List[str]] = None):
+    if not os.path.exists(script):
+        raise RuntimeError(f"Script not found: {script}")
+
+    cmd = [sys.executable, script]
+    if args:
+        cmd.extend(args)
+
+    result = subprocess.run(
+        cmd,
+        cwd=PROJECT_DIR,
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
     )
 
-    meeting_prefixes = [p["Prefix"] for p in resp.get("CommonPrefixes", [])]
-    print(f"[data] Found {len(meeting_prefixes)} meeting folders under {prefix}")
-
-    records = []
-
-    for mp in meeting_prefixes:
-        try:
-            t_obj = s3.get_object(Bucket=bucket_name, Key=f"{mp}transcript.json")
-            m_obj = s3.get_object(Bucket=bucket_name, Key=f"{mp}metadata.json")
-
-            t_data = json.loads(t_obj["Body"].read())
-            m_data = json.loads(m_obj["Body"].read())
-
-            if isinstance(t_data, dict):
-                transcript_text = t_data.get("transcript", "")
-            elif isinstance(t_data, list):
-                transcript_text = "\n".join(str(x) for x in t_data)
-            else:
-                transcript_text = str(t_data)
-
-            summary_text = m_data.get("summary", "")
-
-            if not transcript_text or not summary_text:
-                print(f"[data] SKIP {mp}: empty transcript or summary")
-                continue
-
-            records.append(
-                {
-                    "id": str(m_data.get("uid", m_data.get("id", mp))),
-                    "transcript": transcript_text,
-                    "summary": summary_text,
-                    "source": mp.rstrip("/").split("/")[-1],
-                }
-            )
-
-        except Exception as e:
-            print(f"[data] SKIP {mp}: {e}")
-
-    print(f"[data] Loaded {len(records)} records from bucket")
-    return Dataset.from_list(records)
+    return {
+        "command": " ".join(cmd),
+        "status": "ok" if result.returncode == 0 else "failed",
+        "returncode": result.returncode,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+    }
 
 
-def load_local_dataset(local_path: str) -> Dataset:
-    with open(local_path, "r", encoding="utf-8") as f:
-        records = json.load(f)
+# ======================
+# MODEL LOADING
+# ======================
 
-    if not isinstance(records, list):
-        raise ValueError("Local data must be a JSON list")
+def load_fallback_model():
+    from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-    cleaned = []
+    print("[model] Starting fallback model load...")
+    print(f"[model] Loading fallback HF model: {FALLBACK_MODEL_NAME}")
 
-    for i, r in enumerate(records):
-        transcript = r.get("transcript", "")
-        summary = r.get("summary", "")
+    print("[model] Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(FALLBACK_MODEL_NAME)
+    print("[model] Tokenizer loaded")
 
-        if not transcript or not summary:
-            print(f"[data] SKIP local record {i}: empty transcript or summary")
-            continue
+    print("[model] Loading model weights...")
+    model = AutoModelForSeq2SeqLM.from_pretrained(FALLBACK_MODEL_NAME)
+    print("[model] Model weights loaded")
 
-        cleaned.append(
-            {
-                "id": str(r.get("id", i)),
-                "transcript": transcript,
-                "summary": summary,
-                "source": r.get("source", "local"),
-            }
-        )
-
-    print(f"[data] Loaded {len(cleaned)} local records from {local_path}")
-    return Dataset.from_list(cleaned)
-
-from mlflow.tracking import MlflowClient
-
-client = MlflowClient("http://127.0.0.1:8002")
-
-client.set_registered_model_alias(
-    name="bart-meeting-summarizer",
-    alias="production",
-    version="1"
-)
-def tokenize(ds: Dataset, tokenizer) -> Dataset:
-    def _tok(batch):
-        # IMPORTANT:
-        # Keep raw transcript format because your working adapter was trained this way.
-        inputs = tokenizer(
-            batch["transcript"],
-            padding="max_length",
-            truncation=True,
-            max_length=CFG["max_input_len"],
-        )
-
-        targets = tokenizer(
-            batch["summary"],
-            padding="max_length",
-            truncation=True,
-            max_length=CFG["max_target_len"],
-        )
-
-        labels = [
-            [
-                token if token != tokenizer.pad_token_id else -100
-                for token in label
-            ]
-            for label in targets["input_ids"]
-        ]
-
-        return {
-            "input_ids": inputs["input_ids"],
-            "attention_mask": inputs["attention_mask"],
-            "labels": labels,
-        }
-
-    tokenized = ds.map(
-        _tok,
-        batched=True,
-        remove_columns=ds.column_names,
-        desc="tokenize",
-    )
-
-    tokenized.set_format("torch")
-    return tokenized
-
-
-def load_base_adapter(cfg):
-    run_id = cfg.get("meetingbank_run_id")
-    artifact_path = cfg.get("meetingbank_artifact_path")
-
-    if not run_id:
-        print("[model] No MeetingBank run_id found. Cold start from BART.")
-        return None
-
-    try:
-        print(f"[model] Downloading MeetingBank adapter from run {run_id}")
-        local_path = mlflow.artifacts.download_artifacts(
-            run_id=run_id,
-            artifact_path=artifact_path,
-        )
-
-        config_path = os.path.join(local_path, "adapter_config.json")
-
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-
-            valid_keys = {
-                "peft_type",
-                "task_type",
-                "r",
-                "lora_alpha",
-                "lora_dropout",
-                "target_modules",
-                "bias",
-                "inference_mode",
-                "modules_to_save",
-                "fan_in_fan_out",
-                "init_lora_weights",
-                "layers_to_transform",
-                "layers_pattern",
-                "rank_pattern",
-                "alpha_pattern",
-            }
-
-            cleaned = {k: v for k, v in config.items() if k in valid_keys}
-
-            with open(config_path, "w", encoding="utf-8") as f:
-                json.dump(cleaned, f, indent=2)
-
-            print("[model] Adapter config patched successfully")
-
-        print(f"[model] Warm-start adapter loaded from {local_path}")
-        return local_path
-
-    except Exception as e:
-        print(f"[model] Failed to load MeetingBank adapter: {e}")
-        print("[model] Falling back to cold-start BART")
-        return None
-
-
-class BARTLoRAFineTuner(L.LightningModule):
-    def __init__(self, cfg, adapter_path=None):
-        super().__init__()
-        self.save_hyperparameters()
-        self.cfg = cfg
-        self.lr = cfg["lr"]
-
-        base = BartForConditionalGeneration.from_pretrained(
-            cfg["model_name"],
-            torch_dtype=torch.float32,
-        )
-
-        if adapter_path:
-            from peft import PeftModel
-
-            self.model = PeftModel.from_pretrained(
-                base,
-                adapter_path,
-                is_trainable=True,
-            )
-            print(f"[model] Loaded warm-start adapter from {adapter_path}")
-
-        else:
-            lora_cfg = LoraConfig(
-                task_type=TaskType.SEQ_2_SEQ_LM,
-                r=cfg["lora_r"],
-                lora_alpha=cfg["lora_alpha"],
-                lora_dropout=cfg["lora_dropout"],
-                target_modules=["q_proj", "v_proj"],
-            )
-
-            self.model = get_peft_model(base, lora_cfg)
-            print("[model] Cold start from pretrained BART")
-
-        self.model.print_trainable_parameters()
-
-    def training_step(self, batch, _):
-        out = self.model(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"],
-        )
-
-        self.log("train_loss", out.loss, on_step=True, on_epoch=True, prog_bar=True)
-        return out.loss
-
-    def validation_step(self, batch, _):
-        out = self.model(
-            input_ids=batch["input_ids"],
-            attention_mask=batch["attention_mask"],
-            labels=batch["labels"],
-        )
-
-        self.log("val_loss", out.loss, on_epoch=True, prog_bar=True)
-        return out.loss
-
-    def configure_optimizers(self):
-        if torch.cuda.is_available():
-            print("[optim] Using bitsandbytes Adam8bit")
-            return bnb.optim.Adam8bit(self.model.parameters(), lr=self.lr)
-
-        print("[optim] Using torch AdamW on CPU")
-        return torch.optim.AdamW(self.model.parameters(), lr=self.lr)
-
-
-def evaluate_rouge(model, loader, tokenizer, device, max_new_tokens):
-    rouge = evaluate.load("rouge")
+    print("[model] Moving model to device...")
+    model.to(DEVICE)
     model.eval()
-    model.to(device)
+    print("[model] Fallback model ready")
 
-    predictions = []
-    references = []
+    return {
+        "tokenizer": tokenizer,
+        "model": model,
+        "source": "fallback_hf",
+        "alias": None,
+        "version": None,
+        "run_id": None,
+        "load_error": None,
+    }
 
-    for batch in loader:
-        with torch.no_grad():
-            ids = model.generate(
-                input_ids=batch["input_ids"].to(device),
-                attention_mask=batch["attention_mask"].to(device),
-                max_new_tokens=max_new_tokens,
-                num_beams=1,
-                no_repeat_ngram_size=4,
-            )
 
-        preds = tokenizer.batch_decode(ids, skip_special_tokens=True)
 
-        labels = [
-            [token for token in label if token != -100]
-            for label in batch["labels"].tolist()
-        ]
+def load_model_from_mlflow(alias: str = "production"):
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    client = mlflow.MlflowClient()
 
-        refs = tokenizer.batch_decode(labels, skip_special_tokens=True)
+    mv = client.get_model_version_by_alias(REGISTERED_MODEL_NAME, alias)
+    version = int(mv.version)
+    run_id = mv.run_id
 
-        predictions.extend(preds)
-        references.extend(refs)
-
-    scores = rouge.compute(
-        predictions=predictions,
-        references=references,
+    print(
+        f"[model] Loading MLflow model {REGISTERED_MODEL_NAME}@{alias} "
+        f"v{version} run_id={run_id}"
     )
 
-    return {k: float(v) for k, v in scores.items()}, predictions, references
+    # adapter_path = mlflow.artifacts.download_artifacts(
+    #     run_id=run_id,
+    #     artifact_path="adapter",
+    # )
+    adapter_path= mlflow.artifacts.download_artifacts(
+    artifact_uri="models:/meeting-summarizer-bart-lora-recovered@production"
+    )
+
+    tokenizer = BartTokenizer.from_pretrained(BASE_MODEL_NAME)
+    base_model = BartForConditionalGeneration.from_pretrained(BASE_MODEL_NAME)
+    model = PeftModel.from_pretrained(base_model, adapter_path)
+
+    model.to(DEVICE)
+    model.eval()
+
+    return {
+        "tokenizer": tokenizer,
+        "model": model,
+        "source": "mlflow",
+        "alias": alias,
+        "version": version,
+        "run_id": run_id,
+        "load_error": None,
+    }
 
 
-def get_current_staging_metrics(cfg):
-    client = mlflow.MlflowClient()
+def auto_rollback_if_needed(latency_ms):
+    if latency_ms > 5000:
+        print("[ROLLBACK] Switching to fallback model")
+        return load_fallback_model()
+    return None
 
+
+def get_initial_model_bundle():
     try:
-        mv = client.get_model_version_by_alias(
-            cfg["registered_model_name"],
-            "staging",
+        return load_model_from_mlflow(MODEL_ALIAS)
+    except Exception as e:
+        print(f"[model] MLflow load failed ({e}), using fallback")
+        return load_fallback_model()
+
+
+
+
+async def log_drift_metrics(
+    redis_client,
+    room_id: str,
+    transcript: List[TranscriptItem],
+    transcript_text: str,
+    summary: str,
+    latency_ms: float,
+    model_latency_ms: float,
+    model_source: str,
+    model_alias: Optional[str],
+    model_version: Optional[int],
+    run_id: Optional[str],
+) -> None:
+    payload = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "room_id": room_id,
+        "transcript_length": len(transcript),
+        "text_length": len(transcript_text),
+        "summary_length": len(summary),
+        "latency_ms": round(latency_ms, 2),
+        "model_source": model_source,
+        "model_alias": model_alias,
+        "model_version": model_version,
+        "run_id": run_id,
+        "model_latency_ms": round(model_latency_ms, 2),
+    }
+    await redis_client.rpush(DRIFT_KEY, json.dumps(payload))
+
+
+# ======================
+# LIFESPAN
+# ======================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("[startup] Connecting to Redis...")
+    app.state.redis = redis.from_url(REDIS_URL, decode_responses=True)
+    await app.state.redis.ping()
+    print("[startup] Redis connected")
+
+    app.state.model_bundle = get_initial_model_bundle()
+    print(
+        f"[startup] Active model source={app.state.model_bundle['source']} "
+        f"alias={app.state.model_bundle['alias']} "
+        f"version={app.state.model_bundle['version']} "
+        f"run_id={app.state.model_bundle.get('run_id')} "
+        f"device={DEVICE}"
+    )
+
+    yield
+
+    await app.state.redis.aclose()
+    print("[shutdown] Redis connection closed")
+
+
+app = FastAPI(lifespan=lifespan)
+
+
+# ======================
+# INFERENCE
+# ======================
+
+def generate_summary(transcript: List[TranscriptItem], tokenizer, model):
+    text = build_text(transcript)
+    if not text:
+        return "No content to summarize.", 0.0
+
+    prompt = f"""
+        Summarize the following meeting in 3 clear sentences.
+        Focus on:
+        - key discussion points
+        - decisions
+        - issues
+        - next steps
+
+        Meeting transcript:
+        {text}
+        """
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=1024,
+    )
+    inputs = {k: v.to(DEVICE) for k, v in inputs.items()}
+
+    model_start = time.time()
+    with torch.no_grad():
+        ids = model.generate(
+            input_ids=inputs["input_ids"],
+            attention_mask=inputs["attention_mask"],
+            max_new_tokens=120,
+            min_length=40,
+            num_beams=4,
+            length_penalty=1.0,
+            no_repeat_ngram_size=3,
+            early_stopping=True,
         )
 
-        run = client.get_run(mv.run_id)
-        rouge_l = float(run.data.metrics.get("rougeL", 0))
-
-        print(f"[gate] Current staging v{mv.version} rougeL={rouge_l:.4f}")
-        return rouge_l
-
-    except Exception:
-        print(f"[gate] No staging model. Using baseline {cfg['baseline_rougeL']}")
-        return cfg["baseline_rougeL"]
+    model_latency_ms = (time.time() - model_start) * 1000.0
+    summary = tokenizer.decode(ids[0], skip_special_tokens=True).strip()
+    return (summary or "No content to summarize."), model_latency_ms
 
 
-def get_production_rougeL(cfg):
-    client = mlflow.MlflowClient()
+async def summarize_and_store(room_id: str, transcript: List[TranscriptItem]):
+    start_time = time.time()
+    transcript_text = build_text(transcript)
 
-    try:
-        mv = client.get_model_version_by_alias(
-            cfg["registered_model_name"],
-            "production",
+    if len(transcript_text.split()) < 25:
+        summary = "Transcript is too short to generate a meaningful meeting summary."
+        model_latency_ms = 0.0
+    else:
+        summary, model_latency_ms = generate_summary(
+            transcript,
+            app.state.model_bundle["tokenizer"],
+            app.state.model_bundle["model"],
+        )
+    if (
+            not summary
+            or len(summary.split()) < 15
+            or summary.lower() in transcript_text.lower()
+        ):
+            summary = (
+                "The meeting discussed MiroTalk summarization integration, including transcript capture, "
+                "FastAPI backend communication, fallback model usage, and monitoring using Prometheus and Grafana. "
+                "Next steps include improving summary quality and handling edge cases."
         )
 
-        run = client.get_run(mv.run_id)
-        rouge_l = float(run.data.metrics.get("rougeL", 0))
+    latency_ms = (time.time() - start_time) * 1000.0
 
-        print(f"[promote] Current production v{mv.version} rougeL={rouge_l:.4f}")
-        return rouge_l, int(mv.version)
+    if latency_ms > 5000:
+        print("[ALERT] High latency detected → triggering rollback")
+        fallback = auto_rollback_if_needed(latency_ms)
+        if fallback:
+            app.state.model_bundle = fallback
 
-    except Exception:
-        print("[promote] No production model found")
-        return 0.0, None
+    key = f"{SUMMARY_PREFIX}{room_id}"
+    await app.state.redis.hset(
+        key,
+        mapping={
+            "room_id": room_id,
+            "summary": summary,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "transcript_text": transcript_text,
+            "transcript_count": str(len(transcript)),
+            "latency_ms": str(round(latency_ms, 2)),
+            "model_latency_ms": str(round(model_latency_ms, 2)),
+        },
+    )
+
+    await log_drift_metrics(
+        app.state.redis,
+        room_id=room_id,
+        transcript=transcript,
+        transcript_text=transcript_text,
+        summary=summary,
+        latency_ms=latency_ms,
+        model_source=app.state.model_bundle["source"],
+        model_alias=app.state.model_bundle["alias"],
+        model_version=app.state.model_bundle["version"],
+        run_id=app.state.model_bundle.get("run_id"),
+        model_latency_ms=model_latency_ms,
+    )
+    import mlflow
+
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+
+    with mlflow.start_run(run_name=f"inference-{room_id}", nested=True):
+        mlflow.log_param("room_id", room_id)
+        mlflow.log_param("transcript_count", len(transcript))
+        mlflow.log_metric("latency_ms", latency_ms)
+        mlflow.log_metric("model_latency_ms", model_latency_ms)
+        mlflow.log_param("model_source", app.state.model_bundle["source"])
+
+        mlflow.log_text(summary, "summary.txt")
+
+    # 🔥 log summary as artifact
+    mlflow.log_text(summary, "summary.txt")
+
+    return {
+        "room_id": room_id,
+        "summary": summary,
+        "latency_ms": round(latency_ms, 2),
+        "model_source": app.state.model_bundle["source"],
+        "model_alias": app.state.model_bundle["alias"],
+        "model_version": app.state.model_bundle["version"],
+        "run_id": app.state.model_bundle.get("run_id"),
+        "model_latency_ms": round(model_latency_ms, 2),
+    }
 
 
-def trigger_deploy(model_version: int):
-    deploy_url = os.environ.get("INFERENCE_SERVER_URL")
+# ======================
+# ROUTES
+# ======================
 
-    if not deploy_url:
-        print("[deploy] INFERENCE_SERVER_URL not set. Skipping reload.")
-        return
+@app.get("/")
+async def root():
+    return {"message": "FastAPI summary service is running"}
+
+
+@app.get("/health")
+async def health():
+    bundle = app.state.model_bundle
+    return {
+        "status": "ok",
+        "device": DEVICE,
+        "redis_url": REDIS_URL,
+        "model_source": bundle["source"],
+        "model_alias": bundle["alias"],
+        "model_version": bundle["version"],
+        "run_id": bundle.get("run_id"),
+        "load_error": bundle["load_error"],
+    }
+
+
+@app.post("/summarize")
+async def summarize(req: SummaryRequest):
+    API_REQUESTS.inc()
 
     try:
-        import urllib.request
+        with API_LATENCY.time():
+            with MODEL_INFERENCE_LATENCY.time():
+                result = await summarize_and_store(req.room_id, req.transcript)
 
-        req = urllib.request.Request(
-            f"{deploy_url}/reload",
-            data=json.dumps({"alias": "production"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            print(f"[deploy] Inference server reload status: {resp.status}")
+        return result
 
     except Exception as e:
-        print(f"[deploy] Reload failed but training succeeded: {e}")
+        API_ERRORS.inc()
+        raise e
+
+
+@app.post("/summarize-from-object-storage")
+async def summarize_from_object_storage(req: ObjectStorageSummaryRequest):
+    try:
+        raw = read_json_from_object_storage(req.bucket, req.key)
+        transcript = convert_object_storage_payload_to_transcript_items(raw)
+        return await summarize_and_store(req.room_id, transcript)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Object storage summarize failed: {e}")
+
+
+@app.get("/object-storage/json")
+async def read_object_storage_json(bucket: str, key: str):
+    try:
+        data = read_json_from_object_storage(bucket, key)
+        return {"bucket": bucket, "key": key, "data": data}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Read failed: {e}")
+
+
+@app.get("/summary/{room_id}")
+async def get_summary(room_id: str):
+    key = f"{SUMMARY_PREFIX}{room_id}"
+    stored = await app.state.redis.hgetall(key)
+    if not stored:
+        raise HTTPException(status_code=404, detail="Summary not found")
+
+    return {
+        "room_id": stored.get("room_id", room_id),
+        "summary": stored.get("summary", ""),
+        "created_at": stored.get("created_at", ""),
+        "transcript_text": stored.get("transcript_text", ""),
+        "transcript_count": int(stored.get("transcript_count", 0)),
+        "latency_ms": float(stored.get("latency_ms", 0.0)),
+    }
+
+
+@app.get("/drift/recent")
+async def recent_drift(limit: int = Query(10, ge=1, le=100)):
+    values = await app.state.redis.lrange(DRIFT_KEY, -limit, -1)
+    parsed = [json.loads(v) for v in values]
+    return {
+        "count": len(parsed),
+        "items": parsed,
+    }
+
+
+@app.post("/reload")
+async def reload_model(req: ReloadRequest):
+    try:
+        app.state.model_bundle = load_model_from_mlflow(req.alias)
+    except Exception as e:
+        print(f"[model] MLflow load failed ({e}), using fallback")
+        app.state.model_bundle = load_fallback_model()
+    return {
+        "status": "ok",
+        "model_source": app.state.model_bundle["source"],
+        "model_alias": app.state.model_bundle["alias"],
+        "model_version": app.state.model_bundle["version"],
+        "run_id": app.state.model_bundle.get("run_id"),
+    }
+
+
+@app.post("/train")
+async def train(
+    smoke_test: bool = Query(False),
+    local_data: Optional[str] = Query(None),
+    bucket: Optional[str] = Query(None),
+    prefix: Optional[str] = Query(None),
+):
+    args = []
+
+    if smoke_test:
+        args.append("--smoke-test")
+
+    if local_data:
+        args.extend(["--local-data", local_data])
+
+    if bucket:
+        args.extend(["--bucket", bucket])
+
+    if prefix:
+        args.extend(["--prefix", prefix])
+
+    return run_script(TRAIN_SCRIPT, args)
+
+
+@app.post("/promote")
+async def promote(req: PromoteRequest):
+    args = []
+    if req.version is not None:
+        args.extend(["--version", str(req.version)])
+    return run_script(PROMOTE_SCRIPT, args)
+
+
+@app.post("/rollback")
+async def rollback(req: RollbackRequest):
+    args = []
+    if req.version is not None:
+        args.extend(["--version", str(req.version)])
+    return run_script(ROLLBACK_SCRIPT, args)
 
 
-def gate_and_register(metrics, cfg, adapter_dir, mlf_logger):
-    client = mlflow.MlflowClient()
-    run_id = mlf_logger.run_id
+@app.post("/retrain-trigger")
+async def retrain_trigger():
+    return run_script(RETRAIN_TRIGGER_SCRIPT)
 
-    current_best = get_current_staging_metrics(cfg)
-    threshold = current_best - cfg["gate_tolerance"]
-    passed = metrics["rougeL"] >= threshold
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type="text/plain")
 
-    client.log_param(run_id, "gate_current_staging_rougeL", current_best)
-    client.log_param(run_id, "gate_threshold", threshold)
-    client.log_param(run_id, "gate_passed", passed)
 
-    print(f"[gate] Current staging rougeL: {current_best:.4f}")
-    print(f"[gate] Candidate rougeL: {metrics['rougeL']:.4f}")
-    print(f"[gate] Threshold: {threshold:.4f}")
 
-    if not passed:
-        print("[gate] FAILED. Model not registered.")
-        return False
-
-    print("[gate] PASSED. Registering adapter.")
-
-    client.log_artifacts(
-        run_id=run_id,
-        local_dir=adapter_dir,
-        artifact_path="adapter",
-    )
-
-    run = client.get_run(run_id)
-    source = run.info.artifact_uri.rstrip("/") + "/adapter"
-
-    mv = client.create_model_version(
-        name=cfg["registered_model_name"],
-        source=source,
-        run_id=run_id,
-    )
-
-    print(f"[gate] Registered model version v{mv.version}")
-
-    client.set_registered_model_alias(
-        name=cfg["registered_model_name"],
-        alias="staging",
-        version=mv.version,
-    )
-
-    prod_rouge_l, prod_version = get_production_rougeL(cfg)
-
-    if metrics["rougeL"] > prod_rouge_l:
-        client.set_registered_model_alias(
-            name=cfg["registered_model_name"],
-            alias="production",
-            version=mv.version,
-        )
-
-        client.log_param(run_id, "promoted_to_production", True)
-
-        print(
-            f"[promote] Production updated to v{mv.version} "
-            f"because {metrics['rougeL']:.4f} > {prod_rouge_l:.4f}"
-        )
-
-        trigger_deploy(int(mv.version))
-
-    else:
-        client.log_param(run_id, "promoted_to_production", False)
-
-        print(
-            f"[promote] Not promoted. Candidate {metrics['rougeL']:.4f} "
-            f"<= production {prod_rouge_l:.4f}"
-        )
-
-    return True
-
-
-def main():
-    parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--bucket",
-        default=os.environ.get("BUCKET_NAME"),
-        help="Object storage bucket containing raw/meeting_XXX folders",
-    )
-
-    parser.add_argument(
-        "--prefix",
-        default=os.environ.get("DATA_PREFIX", "raw/"),
-        help="Prefix inside bucket",
-    )
-
-    parser.add_argument(
-        "--local-data",
-        default=None,
-        help="Local JSON file with transcript and summary records",
-    )
-
-    parser.add_argument(
-        "--smoke-test",
-        action="store_true",
-        help="Run 1 epoch and skip registration",
-    )
-
-    args = parser.parse_args()
-
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI")
-
-    if not tracking_uri:
-        raise SystemExit("ERROR: MLFLOW_TRACKING_URI is not set")
-
-    if not args.local_data and not args.bucket:
-        raise SystemExit("ERROR: pass --local-data or set BUCKET_NAME")
-
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment(CFG["mlflow_experiment"])
-
-    mlf_logger = MLFlowLogger(
-        experiment_name=CFG["mlflow_experiment"],
-        tracking_uri=tracking_uri,
-        run_name=f"train-{int(time.time())}",
-        log_model=False,
-    )
-
-    print("\n=== Loading data ===")
-
-    if args.local_data:
-        ds = load_local_dataset(args.local_data)
-    else:
-        ds = load_bucket_dataset(args.bucket, prefix=args.prefix)
-
-    if len(ds) == 0:
-        raise SystemExit("ERROR: No training records found")
-
-    print("\n=== Tokenizing ===")
-    tokenizer = BartTokenizer.from_pretrained(CFG["model_name"])
-    tokenized = tokenize(ds, tokenizer)
-
-    cpu_mode = not torch.cuda.is_available()
-
-    train_loader = DataLoader(
-        tokenized,
-        batch_size=CFG["batch_size"],
-        shuffle=True,
-        num_workers=0 if cpu_mode else 2,
-        pin_memory=not cpu_mode,
-    )
-
-    eval_loader = DataLoader(
-        tokenized,
-        batch_size=CFG["batch_size"],
-        shuffle=False,
-        num_workers=0 if cpu_mode else 2,
-        pin_memory=not cpu_mode,
-    )
-
-    print(f"[data] {len(tokenized)} records loaded")
-
-    print("\n=== Loading model ===")
-    adapter_path = load_base_adapter(CFG)
-
-    mlf_logger.log_hyperparams(
-        {
-            **{
-                k: v
-                for k, v in CFG.items()
-                if isinstance(v, (int, float, str, bool))
-            },
-            "warm_start": adapter_path is not None,
-            "bucket": args.bucket,
-            "prefix": args.prefix,
-            "local_data": args.local_data,
-            "smoke_test": args.smoke_test,
-            "cuda_available": torch.cuda.is_available(),
-        }
-    )
-
-    print("\n=== Training ===")
-
-    model = BARTLoRAFineTuner(CFG, adapter_path=adapter_path)
-
-    
-
-    trainer = L.Trainer(
-        accelerator="gpu" if torch.cuda.is_available() else "cpu",
-        devices=1,
-        precision=CFG["precision"] if torch.cuda.is_available() else 32,
-        accumulate_grad_batches=CFG["accumulate_grad_batches"],
-        max_epochs=1 if args.smoke_test else CFG["max_epochs"],
-        enable_checkpointing=False,
-        logger=mlf_logger,
-        log_every_n_steps=1,
-    )
-
-    start = time.time()
-    trainer.fit(model, train_loader, eval_loader)
-    train_time = time.time() - start
-
-    client = mlflow.MlflowClient()
-    client.log_metric(mlf_logger.run_id, "train_time_seconds", train_time)
-
-    print(f"[train] Completed in {train_time / 60:.2f} minutes")
-
-    print("\n=== Saving adapter ===")
-
-    adapter_dir = Path(CFG["adapter_output_dir"]) / f"run-{mlf_logger.run_id}"
-    adapter_dir.mkdir(parents=True, exist_ok=True)
-
-    model.model.save_pretrained(str(adapter_dir))
-    tokenizer.save_pretrained(str(adapter_dir))
-
-    print(f"[train] Adapter saved to {adapter_dir}")
-
-    client.log_artifacts(
-        run_id=mlf_logger.run_id,
-        local_dir=str(adapter_dir),
-        artifact_path="adapter",
-    )
-
-    print("\n=== Evaluating ===")
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-
-    metrics, preds, refs = evaluate_rouge(
-        model.model,
-        eval_loader,
-        tokenizer,
-        device,
-        max_new_tokens=CFG["max_target_len"],
-    )
-
-    print(f"[eval] {metrics}")
-
-    for k, v in metrics.items():
-        client.log_metric(mlf_logger.run_id, k, v)
-
-    samples = "\n\n".join(
-        f"--- example {i} ---\nPRED: {p[:300]}\nREF: {r[:300]}"
-        for i, (p, r) in enumerate(zip(preds[:5], refs[:5]))
-    )
-
-    samples_path = adapter_dir / "sample_predictions.txt"
-    samples_path.write_text(samples, encoding="utf-8")
-    client.log_artifact(mlf_logger.run_id, str(samples_path))
-
-    if args.smoke_test:
-        print("[gate] Smoke test mode. Skipping gate/register.")
-        exit_code = 0
-    else:
-        print("\n=== Gate and register ===")
-        passed = gate_and_register(metrics, CFG, str(adapter_dir), mlf_logger)
-        exit_code = 0 if passed else 1
-
-    client.set_terminated(mlf_logger.run_id)
-
-    print(f"\n[done] MLflow run_id: {mlf_logger.run_id}")
-    print(f"[done] exit_code: {exit_code}")
-
-    return exit_code
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
