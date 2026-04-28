@@ -41,6 +41,38 @@ def list_objects(conn, container, prefix):
         print(f"  Warning: could not list {prefix}: {e}")
         return []
 
+def load_feedback_records(conn, container):
+    """Load all collected feedback transcripts from object storage."""
+    feedback_records = []
+    feedback_objects = list_objects(conn, container, "feedback/")
+    
+    print(f"  Found {len(feedback_objects)} feedback files")
+    
+    for obj_path in feedback_objects:
+        data = load_json(conn, container, obj_path)
+        if not data:
+            continue
+        records = data.get("records", [])
+        for r in records:
+            feedback_records.append({
+                "meeting_id"      : r.get("meeting_id", "unknown"),
+                "transcript"      : r.get("transcript", ""),
+                "transcript_normalized": r.get("transcript", "").lower().strip(),
+                "duration_sec"    : r.get("duration_sec", 0.0),
+                "token_count"     : len(r.get("transcript", "").split()),
+                "confidence"      : r.get("confidence", 0.0),
+                "source"          : "inference_feedback",
+                "is_synthetic"    : False,
+                "split"           : "train",
+                "model_version"   : r.get("model_version", "unknown"),
+                "collected_at"    : r.get("timestamp", ""),
+                "_metadata"       : None,
+            })
+        print(f"    Loaded {len(records)} records from {obj_path}")
+    
+    print(f"  Total feedback records: {len(feedback_records)}")
+    return feedback_records
+
 
 def load_json(conn, container, path):
     """Load and parse a JSON object from Swift."""
@@ -325,7 +357,29 @@ def run_batch_pipeline(
                        if r.get("split") == "train"]
     print(f"  Synthetic training samples added: {len(train_synthetic)}")
 
-    
+    # Load and add feedback records to training split
+    print("\nStep 5b: Loading production feedback records...")
+    feedback_objects = list_objects(conn, container, "feedback/")
+    feedback_added = 0
+    for obj_path in feedback_objects:
+        data = load_json(conn, container, obj_path)
+        if not data:
+            continue
+        for r in data.get("records", []):
+            train_synthetic.append({
+                "meeting_id"           : r.get("meeting_id", "unknown"),
+                "transcript"           : r.get("transcript", ""),
+                "transcript_normalized": r.get("transcript", "").lower().strip(),
+                "duration_sec"         : r.get("duration_sec", 0.0),
+                "token_count"          : len(r.get("transcript", "").split()),
+                "confidence"           : r.get("confidence", 0.0),
+                "source"               : "inference_feedback",
+                "is_synthetic"         : False,
+                "split"                : "train",
+            })
+            feedback_added += 1
+    print(f"  Added {feedback_added} feedback records from {len(feedback_objects)} files")
+
     print("\nStep 6: Compiling and uploading versioned datasets...")
     output_prefix = f"datasets/v{output_version}"
 
