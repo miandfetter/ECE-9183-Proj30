@@ -736,6 +736,26 @@ app.get('/logged', (req, res) => {
     }
 });
 
+
+app.post('/api/summary', async (req, res) => {                               
+    console.log("SUMMARY API HIT");                                            
+    console.log("Proxy request body:", req.body);                               
+                                                                             
+    try {                                                                       
+        const response = await fetch('${FASTAPI_URL}/summarize', {              
+            method: 'POST',                                       
+            headers: { 'Content-Type': 'application/json' },      
+            body: JSON.stringify(req.body),                                   
+        });                                                             
+                                                                        
+        const data = await response.json();                      
+        console.log("Proxy response data:", data);                  
+        res.status(response.status).json(data);                   
+    } catch (err) {                                                    
+        console.error("Summary proxy error:", err);             
+        res.status(500).json({ error: 'Summary failed' });           
+    }                                                                
+}); 
 /* AXIOS */
 
 // handle login on host protected
