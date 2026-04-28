@@ -187,6 +187,12 @@ fetch("http://127.0.0.1:8000/summarize", {
 ```
 
 ---
+# Set Environment Variables (MLflow + Storage)
+
+export MLFLOW_TRACKING_URI=http://127.0.0.1:8002
+export MLFLOW_S3_ENDPOINT_URL=https://chi.tacc.chameleoncloud.org:7480
+export AWS_ACCESS_KEY_ID=<your-key>
+export AWS_SECRET_ACCESS_KEY=<your-secret>
 
 # 🧠 Fallback Mechanism
 
