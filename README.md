@@ -87,9 +87,6 @@ All services are running on the **Chameleon Cloud VM**, but are accessed locally
 | MLFlow    | http://localhost/(VM_IP):8002      | Port 8002  |      
 ---
 
-### 💬 Explanation
-
-> Although the services run on the Chameleon Cloud VM, they are accessed through localhost using SSH port forwarding. This maps local ports to the corresponding services running remotely on the VM.
 
 ---
 
