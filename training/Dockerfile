@@ -7,11 +7,11 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y git curl && rm -rf /var/lib/apt/lists/*
 
 # Install Python deps first (cached layer — only rebuilds if requirements.txt changes)
-COPY requirements.txt .
+COPY training/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy training code
-COPY train.py .
+COPY training/train.py .
 
 # /mnt/data is mounted at runtime from the host for adapter output + checkpoints
 # baseline_scores.json is passed in at runtime via volume mount too
