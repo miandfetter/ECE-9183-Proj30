@@ -1,9 +1,10 @@
+
 /*
- ██████ ██      ██ ███████ ███    ██ ████████ 
-██      ██      ██ ██      ████   ██    ██    
-██      ██      ██ █████   ██ ██  ██    ██    
-██      ██      ██ ██      ██  ██ ██    ██    
- ██████ ███████ ██ ███████ ██   ████    ██   
+ â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€â–ˆâ–ˆâ€     â–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ€   â–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€
+â–ˆâ–ˆâ€â€â€â€â€â€â–ˆâ–ˆâ€     â–ˆâ–ˆâ€â–ˆâ–ˆâ€â€â€â€â€â€â–ˆâ–ˆâ–ˆâ–ˆâ€  â–ˆâ–ˆâ€â€â€â€â–ˆâ–ˆâ€â€â€â€
+â–ˆâ–ˆâ€     â–ˆâ–ˆâ€     â–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€  â–ˆâ–ˆâ€â–ˆâ–ˆâ€ â–ˆâ–ˆâ€   â–ˆâ–ˆâ€   
+â–ˆâ–ˆâ€     â–ˆâ–ˆâ€     â–ˆâ–ˆâ€â–ˆâ–ˆâ€â€â€â€  â–ˆâ–ˆâ€â€â–ˆâ–ˆâ€â–ˆâ–ˆâ€   â–ˆâ–ˆâ€   
+ â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€â–ˆâ–ˆâ€â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ€â–ˆâ–ˆâ€ â€â–ˆâ–ˆâ–ˆâ–ˆâ€   â–ˆâ–ˆâ€  
 */
 
 /**
@@ -15,7 +16,7 @@
  * @license For commercial use or closed source, contact us at license.mirotalk@gmail.com or purchase directly from CodeCanyon
  * @license CodeCanyon: https://codecanyon.net/item/mirotalk-p2p-webrtc-realtime-video-conferences/38376661
  * @author  Miroslav Pejic - miroslav.pejic.85@gmail.com
- * @version 1.8.06
+ * @version 1.8.05
  *
  */
 
@@ -215,7 +216,30 @@ const settingsExtraDropdown = getId('settingsExtraDropdown');
 const settingsExtraToggle = getId('settingsExtraToggle');
 const settingsExtraMenu = getId('settingsExtraMenu');
 const leaveRoomBtn = getId('leaveRoomBtn');
+// REMOVE old addEventListener completely
 
+let isSummaryPromptOpen = false;
+
+leaveRoomBtn.addEventListener(
+    'click',
+    async (e) => {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        if (isSummaryPromptOpen) return;
+        isSummaryPromptOpen = true;
+
+        const wantSummary = confirm("Do you want a summary of this meeting?");
+
+        if (wantSummary) {
+            await generateSummary();
+        }
+
+        isSummaryPromptOpen = false;
+        exitRoom();
+    },
+    true
+);
 // Room Emoji Picker
 const closeEmojiPickerContainer = getId('closeEmojiPickerContainer');
 const emojiPickerContainer = getId('emojiPickerContainer');
@@ -255,52 +279,52 @@ const msgerSpeechMsg = getId('msgerSpeechMsg');
 const msgerSendBtn = getId('msgerSendBtn');
 
 const chatInputEmoji = {
-    '<3': '❤️',
-    '</3': '💔',
-    ':D': '😀',
-    ':)': '😃',
-    ';)': '😉',
-    ':(': '😒',
-    ':p': '😛',
-    ';p': '😜',
-    ":'(": '😢',
-    ':+1:': '👍',
-    ':*': '😘',
-    ':O': '😲',
-    ':|': '😐',
-    ':*(': '😭',
-    XD: '😆',
-    ':B': '😎',
-    ':P': '😜',
-    '<(': '👎',
-    '>:(': '😡',
-    ':S': '😟',
-    ':X': '🤐',
-    ';(': '😥',
-    ':T': '😖',
-    ':@': '😠',
-    ':$': '🤑',
-    ':&': '🤗',
-    ':#': '🤔',
-    ':!': '😵',
-    ':W': '😷',
-    ':%': '🤒',
-    ':*!': '🤩',
-    ':G': '😬',
-    ':R': '😋',
-    ':M': '🤮',
-    ':L': '🥴',
-    ':C': '🥺',
-    ':F': '🥳',
-    ':Z': '🤢',
-    ':^': '🤓',
-    ':K': '🤫',
-    ':D!': '🤯',
-    ':H': '🧐',
-    ':U': '🤥',
-    ':V': '🤪',
-    ':N': '🥶',
-    ':J': '🥴',
+    '<3': 'â¤ï¸',
+    '</3': 'ðŸ’”',
+    ':D': 'ðŸ˜€',
+    ':)': 'ðŸ˜ƒ',
+    ';)': 'ðŸ˜‰',
+    ':(': 'ðŸ˜’',
+    ':p': 'ðŸ˜›',
+    ';p': 'ðŸ˜œ',
+    ":'(": 'ðŸ˜¢',
+    ':+1:': 'ðŸ‘',
+    ':*': 'ðŸ˜˜',
+    ':O': 'ðŸ˜²',
+    ':|': 'ðŸ˜',
+    ':*(': 'ðŸ˜­',
+    XD: 'ðŸ˜†',
+    ':B': 'ðŸ˜Ž',
+    ':P': 'ðŸ˜œ',
+    '<(': 'ðŸ‘Ž',
+    '>:(': 'ðŸ˜¡',
+    ':S': 'ðŸ˜Ÿ',
+    ':X': 'ðŸ¤',
+    ';(': 'ðŸ˜¥',
+    ':T': 'ðŸ˜–',
+    ':@': 'ðŸ˜ ',
+    ':$': 'ðŸ¤‘',
+    ':&': 'ðŸ¤—',
+    ':#': 'ðŸ¤”',
+    ':!': 'ðŸ˜µ',
+    ':W': 'ðŸ˜·',
+    ':%': 'ðŸ¤’',
+    ':*!': 'ðŸ¤©',
+    ':G': 'ðŸ˜¬',
+    ':R': 'ðŸ˜‹',
+    ':M': 'ðŸ¤®',
+    ':L': 'ðŸ¥´',
+    ':C': 'ðŸ¥º',
+    ':F': 'ðŸ¥³',
+    ':Z': 'ðŸ¤¢',
+    ':^': 'ðŸ¤“',
+    ':K': 'ðŸ¤«',
+    ':D!': 'ðŸ¤¯',
+    ':H': 'ðŸ§',
+    ':U': 'ðŸ¤¥',
+    ':V': 'ðŸ¤ª',
+    ':N': 'ðŸ¥¶',
+    ':J': 'ðŸ¥´',
 }; // https://github.com/wooorm/gemoji/blob/main/support.md
 
 // Chat room emoji picker
@@ -1690,6 +1714,32 @@ function handleButtonsRule() {
     );
 }
 
+function buildTranscriptPayload(meetingId, transcriptSegments) {
+    if (!transcriptSegments || transcriptSegments.length === 0) {
+        return {
+            meeting_id: meetingId,
+            transcript: "",
+            segments: []
+        };
+    }
+
+    const segments = transcriptSegments.map((seg, index) => ({
+        speaker: seg.speaker || `Speaker ${index + 1}`,
+        text: seg.text || "",
+        start: typeof seg.start === "number" ? seg.start : 0,
+        end: typeof seg.end === "number" ? seg.end : 0
+    }));
+
+    const transcript = segments
+        .map(seg => `${seg.speaker}: ${seg.text}`)
+        .join(" ");
+
+    return {
+        meeting_id: meetingId,
+        transcript: transcript,
+        segments: segments
+    };
+}
 /**
  * Get Buttons config from server side and apply to current client
  */
@@ -2130,7 +2180,7 @@ async function loadLocalStorage() {
         await changeInitCamera(initVideoSelect.value);
         await handleLocalCameraMirror();
     }
-    // Refresh audio — skip if the current mic already matches the stored device
+    // Refresh audio â€” skip if the current mic already matches the stored device
     // to avoid tearing down and rebuilding the noise-suppression pipeline unnecessarily.
     if (useAudio && audioInputSelect.value) {
         const currentMicStream = noiseProcessor?.originalStream || localAudioMediaStream;
@@ -2191,7 +2241,7 @@ function detectCameraFacingMode(stream) {
     const videoTrack = stream.getVideoTracks()[0];
     const settings = videoTrack.getSettings();
     const capabilities = videoTrack.getCapabilities?.() || {};
-    // Priority: settings.facingMode (actual) → capabilities.facingMode (possible) → default 'user'
+    // Priority: settings.facingMode (actual) â†’ capabilities.facingMode (possible) â†’ default 'user'
     const facingMode = settings.facingMode || capabilities.facingMode?.[0] || 'user';
     return facingMode === 'environment' ? 'environment' : 'user'; // Force valid output
 }
@@ -2398,6 +2448,20 @@ async function changeLocalMicrophone(deviceId) {
         });
 }
 
+async function sendTranscriptForSummary(meetingId, transcriptSegments) {
+    const payload = buildTranscriptPayload(meetingId, transcriptSegments);
+
+    const response = await fetch("http://YOUR-FASTAPI-IP:8000/summarize_async", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(payload)
+    });
+
+    return await response.json();
+}
+
 /**
  * Check peer audio and video &audio=1&video=1
  * 1/true = enabled / 0/false = disabled
@@ -2450,11 +2514,11 @@ async function initRNNoiseSuppression() {
     // Tear down any leftover processor from a previous session / hot-reload.
     stopNoiseSuppressionPipeline();
 
-    console.log('RNNoise suppression initialized — ready to activate.');
+    console.log('RNNoise suppression initialized â€” ready to activate.');
 }
 
 /**
- * Noise suppression not supported — hide the UI toggle and flag it.
+ * Noise suppression not supported â€” hide the UI toggle and flag it.
  */
 function handleRNNoiseNotSupported() {
     isRNNoiseSupported = false;
@@ -2744,13 +2808,13 @@ async function handleOnIceCandidate(peer_id) {
         // Display network information based on candidate type
         switch (type) {
             case 'host':
-                networkHost.innerText = '🟢';
+                networkHost.innerText = 'ðŸŸ¢';
                 break;
             case 'srflx':
-                networkStun.innerText = '🟢';
+                networkStun.innerText = 'ðŸŸ¢';
                 break;
             case 'relay':
-                networkTurn.innerText = '🟢';
+                networkTurn.innerText = 'ðŸŸ¢';
                 break;
             default:
                 console.warn(`[ICE candidate] unknown type: ${type}`, candidate);
@@ -2764,9 +2828,9 @@ async function handleOnIceCandidate(peer_id) {
 
         console.warn('[ICE candidate] error', { url, error: errorText });
 
-        if (url.startsWith('host:')) networkHost.innerText = '🔴';
-        if (url.startsWith('stun:')) networkStun.innerText = '🔴';
-        if (url.startsWith('turn:')) networkTurn.innerText = '🔴';
+        if (url.startsWith('host:')) networkHost.innerText = 'ðŸ”´';
+        if (url.startsWith('stun:')) networkStun.innerText = 'ðŸ”´';
+        if (url.startsWith('turn:')) networkTurn.innerText = 'ðŸ”´';
 
         //msgPopup('warning', `${url}: ${errorText}`, 'top-end', 6000);
     };
@@ -3004,6 +3068,55 @@ async function handleRtcOffer(peer_id) {
     };
 }
 
+async function generateSummary() {
+    try {
+        if (!transcripts || !transcripts.length) {
+            alert("No transcript available to summarize");
+            return;
+        }
+
+        const payload = {
+            room_id: roomId,
+            transcript: transcripts.map((t, i) => ({
+                speaker: i + 1,
+                speaker_name: t.name || "Unknown",
+                text: t.caption || ""
+            }))
+        };
+
+        console.log("Summary payload:", payload);
+
+        const response = await fetch("/api/summary", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+        console.log("Summary response:", data);
+
+        if (!response.ok) {
+            throw new Error(
+                JSON.stringify(data.detail || data.error || data)
+            );
+        }
+
+        if (!data.summary) {
+            throw new Error("No summary returned from backend");
+        }
+
+        alert("Meeting Summary:\n\n" + data.summary);
+    } catch (err) {
+        console.error("Summary error:", err);
+        alert("Failed to generate meeting summary: " + err.message);
+    }
+}
+
+
+
+
 /**
  * Peers exchange session descriptions which contains information about their audio / video settings and that sort of stuff. First
  * the 'offerer' sends a description to the 'answerer' (with type "offer"), then the answerer sends one back (with type "answer").
@@ -3219,7 +3332,7 @@ function handleRemovePeer(config) {
 }
 
 /**
- * Theme definitions — each key maps to the CSS custom properties for that theme
+ * Theme definitions â€” each key maps to the CSS custom properties for that theme
  */
 let themeMap = {
     dark: {
@@ -3632,13 +3745,13 @@ async function addChild(device, els) {
         option.value = deviceId;
         switch (kind) {
             case 'videoinput':
-                option.innerText = `📹 ` + label || `📹 camera ${el.length + 1}`;
+                option.innerText = `ðŸ“¹ ` + label || `ðŸ“¹ camera ${el.length + 1}`;
                 break;
             case 'audioinput':
-                option.innerText = `🎤 ` + label || `🎤 microphone ${el.length + 1}`;
+                option.innerText = `ðŸŽ¤ ` + label || `ðŸŽ¤ microphone ${el.length + 1}`;
                 break;
             case 'audiooutput':
-                option.innerText = `🔈 ` + label || `🔈 speaker ${el.length + 1}`;
+                option.innerText = `ðŸ”ˆ ` + label || `ðŸ”ˆ speaker ${el.length + 1}`;
                 break;
             default:
                 break;
@@ -3767,7 +3880,7 @@ function detectBluetoothHeadset(init = false) {
     const lowQualityBT = /(bluetooth|headset|hands[- ]?free|hsp|hfp|sco|airpods)/i;
     if (micName && lowQualityBT.test(micName)) {
         alert(
-            "⚠️ You're using a Bluetooth headset with limited audio quality. For best results, use your device's built-in microphone or a wired headset."
+            "âš ï¸ You're using a Bluetooth headset with limited audio quality. For best results, use your device's built-in microphone or a wired headset."
         );
     }
 }
@@ -3846,7 +3959,7 @@ async function setupLocalAudioMedia() {
         const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
         if (stream) {
             /* 
-                Verify the audio track is live – on some mobile devices getUserMedia
+                Verify the audio track is live â€“ on some mobile devices getUserMedia
                 succeeds but the track is muted/ended (e.g. built-in mic restrictions).
             */
             let activeStream = stream;
@@ -4523,7 +4636,7 @@ async function loadRemoteMediaStream(stream, peers, peer_id, kind) {
                 setTippy(remoteHandStatusIcon, 'Participant hand is raised', 'bottom');
                 setTippy(remoteVideoStatusIcon, 'Participant video is on', 'bottom');
                 setTippy(remoteAudioStatusIcon, 'Participant audio is on', 'bottom');
-                setTippy(remoteAudioVolume, '🔊 Volume', 'top');
+                setTippy(remoteAudioVolume, 'ðŸ”Š Volume', 'top');
                 setTippy(remoteVideoToImgBtn, 'Take a snapshot', 'bottom');
                 setTippy(remoteVideoPiPBtn, 'Toggle picture in picture', 'bottom');
                 setTippy(remoteVideoPinBtn, 'Toggle Pin video', 'bottom');
@@ -6539,23 +6652,23 @@ function setCaptionRoomBtn() {
 function setRoomEmojiButton() {
     // Map sound emojis to their shortcodes for sound playback
     const soundEmojis = [
-        { emoji: '👍', shortcodes: ':+1:' },
-        { emoji: '👎', shortcodes: ':-1:' },
-        { emoji: '👌', shortcodes: ':ok_hand:' },
-        { emoji: '😀', shortcodes: ':grinning:' },
-        { emoji: '😃', shortcodes: ':smiley:' },
-        { emoji: '😂', shortcodes: ':joy:' },
-        { emoji: '😘', shortcodes: ':kissing_heart:' },
-        { emoji: '❤️', shortcodes: ':heart:' },
-        { emoji: '🎺', shortcodes: ':trumpet:' },
-        { emoji: '🎉', shortcodes: ':tada:' },
-        { emoji: '😮', shortcodes: ':open_mouth:' },
-        { emoji: '👏', shortcodes: ':clap:' },
-        { emoji: '✨', shortcodes: ':sparkles:' },
-        { emoji: '⭐', shortcodes: ':star:' },
-        { emoji: '🌟', shortcodes: ':star2:' },
-        { emoji: '💫', shortcodes: ':dizzy:' },
-        { emoji: '🚀', shortcodes: ':rocket:' },
+        { emoji: 'ðŸ‘', shortcodes: ':+1:' },
+        { emoji: 'ðŸ‘Ž', shortcodes: ':-1:' },
+        { emoji: 'ðŸ‘Œ', shortcodes: ':ok_hand:' },
+        { emoji: 'ðŸ˜€', shortcodes: ':grinning:' },
+        { emoji: 'ðŸ˜ƒ', shortcodes: ':smiley:' },
+        { emoji: 'ðŸ˜‚', shortcodes: ':joy:' },
+        { emoji: 'ðŸ˜˜', shortcodes: ':kissing_heart:' },
+        { emoji: 'â¤ï¸', shortcodes: ':heart:' },
+        { emoji: 'ðŸŽº', shortcodes: ':trumpet:' },
+        { emoji: 'ðŸŽ‰', shortcodes: ':tada:' },
+        { emoji: 'ðŸ˜®', shortcodes: ':open_mouth:' },
+        { emoji: 'ðŸ‘', shortcodes: ':clap:' },
+        { emoji: 'âœ¨', shortcodes: ':sparkles:' },
+        { emoji: 'â­', shortcodes: ':star:' },
+        { emoji: 'ðŸŒŸ', shortcodes: ':star2:' },
+        { emoji: 'ðŸ’«', shortcodes: ':dizzy:' },
+        { emoji: 'ðŸš€', shortcodes: ':rocket:' },
     ];
 
     // Header with close button
@@ -7164,7 +7277,7 @@ function setMySettingsBtn() {
         // Push to talk
         switchPushToTalk.addEventListener('change', (e) => {
             isPushToTalkActive = e.currentTarget.checked;
-            userLog('toast', `👆 Push to talk ` + (isPushToTalkActive ? 'ON' : 'OFF'));
+            userLog('toast', `ðŸ‘† Push to talk ` + (isPushToTalkActive ? 'ON' : 'OFF'));
             playSound('switch');
         });
     }
@@ -7301,7 +7414,7 @@ function setLeaveRoomBtn() {
 }
 
 /**
- * Handle left buttons - status menù show - hide on body mouse move
+ * Handle left buttons - status menÃ¹ show - hide on body mouse move
  */
 function handleBodyOnMouseMove() {
     document.body.addEventListener('mousemove', (e) => {
@@ -7765,7 +7878,7 @@ function setupVideoUrlPlayer() {
  */
 async function handleLocalCameraMirror() {
     if (camera === 'environment') {
-        // Back camera → No mirror
+        // Back camera â†’ No mirror
         initVideo.classList.remove('mirror');
         myVideo.classList.remove('mirror');
     } else {
@@ -8302,7 +8415,7 @@ function copyRoomURL() {
     navigator.clipboard.writeText(tmpInput.value);
     console.log('Copied to clipboard Join Link ', roomURL);
     document.body.removeChild(tmpInput);
-    userLog('toast', 'Meeting URL copied to clipboard 👍');
+    userLog('toast', 'Meeting URL copied to clipboard ðŸ‘');
 }
 
 /**
@@ -9179,8 +9292,8 @@ function startRecordingTimer() {
         if (!isStreamRecordingPaused) {
             recElapsedTime++;
             let recTimeElapsed = secondsToHms(recElapsedTime);
-            myVideoPeerName.innerText = myPeerName + ' 🔴 REC ' + recTimeElapsed;
-            recordingTime.innerText = '🔴 REC ' + recTimeElapsed;
+            myVideoPeerName.innerText = myPeerName + ' ðŸ”´ REC ' + recTimeElapsed;
+            recordingTime.innerText = 'ðŸ”´ REC ' + recTimeElapsed;
         }
     }, 1000);
 }
@@ -9392,7 +9505,7 @@ function getAudioStreamFromAudioElements() {
  * @param {string} action recording action
  */
 function notifyRecording(fromId, from, fromAvatar, action) {
-    const msg = '🔴 ' + action + ' conference recording';
+    const msg = 'ðŸ”´ ' + action + ' conference recording';
     const chatMessage = {
         from: from,
         fromAvatar: fromAvatar,
@@ -9602,7 +9715,7 @@ async function downloadRecordedStream() {
             null,
             'Recording',
             `<div style="text-align: left;">
-                🔴 &nbsp; Recording Info:
+                ðŸ”´ &nbsp; Recording Info:
                 ${recordingInfo}
                 Please wait to be processed, then will be downloaded to your ${currentDevice} device.
             </div>`,
@@ -11559,46 +11672,12 @@ function emitMsg(from, fromAvatar, to, msg, privateMsg, id) {
 }
 
 /**
- * Show AI typing indicator animation in the chat
- * @param {string} aiName
- */
-function showAITypingIndicator(aiName) {
-    const existing = getId(`ai-typing-${aiName}`);
-    if (existing) return;
-    const typingHTML = `
-        <div id="ai-typing-${aiName}" class="msg left-msg">
-            <div class="ai-typing-indicator">
-                <div class="typing-dots">
-                    <span></span>
-                    <span></span>
-                    <span></span>
-                </div>
-            </div>
-        </div>
-    `;
-    msgerChat.insertAdjacentHTML('beforeend', typingHTML);
-    msgerChat.scrollTop = msgerChat.scrollHeight;
-}
-
-/**
- * Hide AI typing indicator animation from the chat
- * @param {string} aiName
- */
-function hideAITypingIndicator(aiName) {
-    const indicator = getId(`ai-typing-${aiName}`);
-    if (indicator) indicator.remove();
-}
-
-/**
  * Read ChatGPT incoming message
  * https://platform.openai.com/docs/introduction
  * @param {string} msg
  */
 async function getChatGPTmessage(msg) {
     console.log('Send ChatGPT message:', msg);
-
-    showAITypingIndicator('ChatGPT');
-
     signalingSocket
         .request('data', {
             room_id: roomId,
@@ -11613,7 +11692,6 @@ async function getChatGPTmessage(msg) {
         })
         .then(
             function (completion) {
-                hideAITypingIndicator('ChatGPT');
                 if (!completion) return;
                 const { message, context } = completion;
                 chatGPTcontext = context ? context : [];
@@ -11625,7 +11703,6 @@ async function getChatGPTmessage(msg) {
             }.bind(this)
         )
         .catch((err) => {
-            hideAITypingIndicator('ChatGPT');
             console.log('ChatGPT error:', err);
         });
 }
@@ -12631,11 +12708,11 @@ function disableAllPeers(element) {
         if (result.isConfirmed) {
             switch (element) {
                 case 'audio':
-                    userLog('toast', 'Mute everyone 👍');
+                    userLog('toast', 'Mute everyone ðŸ‘');
                     emitPeersAction('muteAudio');
                     break;
                 case 'video':
-                    userLog('toast', 'Hide everyone 👍');
+                    userLog('toast', 'Hide everyone ðŸ‘');
                     emitPeersAction('hideVideo');
                     break;
                 default:
@@ -12726,15 +12803,15 @@ function disablePeer(peer_id, element) {
         if (result.isConfirmed) {
             switch (element) {
                 case 'audio':
-                    userLog('toast', 'Mute audio 👍');
+                    userLog('toast', 'Mute audio ðŸ‘');
                     emitPeerAction(peer_id, 'muteAudio');
                     break;
                 case 'video':
-                    userLog('toast', 'Hide video 👍');
+                    userLog('toast', 'Hide video ðŸ‘');
                     emitPeerAction(peer_id, 'hideVideo');
                     break;
                 case 'screen':
-                    userLog('toast', 'Stop screen 👍');
+                    userLog('toast', 'Stop screen ðŸ‘');
                     emitPeerAction(peer_id, 'stopScreen');
                     break;
                 default:
@@ -12811,14 +12888,14 @@ function handleRoomStatus(config) {
     switch (action) {
         case 'lock':
             playSound('locked');
-            userLog('toast', `${icons.user} ${peer_name} \n has 🔒 LOCKED the room by password`, 'top-end');
+            userLog('toast', `${icons.user} ${peer_name} \n has ðŸ”’ LOCKED the room by password`, 'top-end');
             elemDisplay(lockRoomBtn, false);
             elemDisplay(unlockRoomBtn, true);
             isRoomLocked = true;
             screenReaderAccessibility.announceMessage(`${peer_name} locked the room`);
             break;
         case 'unlock':
-            userLog('toast', `${icons.user} ${peer_name} \n has 🔓 UNLOCKED the room`, 'top-end');
+            userLog('toast', `${icons.user} ${peer_name} \n has ðŸ”“ UNLOCKED the room`, 'top-end');
             elemDisplay(unlockRoomBtn, false);
             elemDisplay(lockRoomBtn, true);
             isRoomLocked = false;
@@ -14318,7 +14395,7 @@ function abortReceiveFileTransfer() {
  */
 function handleAbortFileTransfer(config) {
     console.log(`File transfer aborted by ${config.peer_name}`);
-    userLog('toast', `⚠️ File transfer aborted by ${config.peer_name}`);
+    userLog('toast', `âš ï¸ File transfer aborted by ${config.peer_name}`);
     abortFileTransfer();
 }
 
@@ -14332,7 +14409,7 @@ function handleFileAbort() {
     receiveInProgress = false;
     elemDisplay(receiveFileDiv, false);
     console.log('File transfer aborted');
-    userLog('toast', '⚠️ File transfer aborted');
+    userLog('toast', 'âš ï¸ File transfer aborted');
 }
 
 /**
@@ -15002,7 +15079,7 @@ function showAbout() {
     Swal.fire({
         background: swBg,
         position: 'center',
-        title: brand.about?.title && brand.about.title.trim() !== '' ? brand.about.title : 'WebRTC P2P v1.8.06',
+        title: brand.about?.title && brand.about.title.trim() !== '' ? brand.about.title : 'WebRTC P2P v1.8.05',
         imageUrl: brand.about?.imageUrl && brand.about.imageUrl.trim() !== '' ? brand.about.imageUrl : images.about,
         customClass: { image: 'img-about' },
         html: `
@@ -15058,10 +15135,24 @@ function initExitMeeting() {
 /**
  * Leave the Room and create a new one
  */
-function leaveRoom() {
+async function leaveRoom() {
     checkRecording();
+
+    const wantSummary = confirm("Do you want a summary of this meeting?");
+
+    if (wantSummary) {
+        await generateSummary();
+
+        const leaveNow = confirm("Summary generated. Do you want to leave the meeting now?");
+        if (!leaveNow) {
+            return;
+        }
+    }
+
     surveyActive ? leaveFeedback() : redirectOnLeave();
 }
+
+
 
 /**
  * Exit the Room
@@ -15920,7 +16011,7 @@ function setupQuickDeviceSwitchDropdowns() {
 
             if (deviceChangeFrame) cancelAnimationFrame(deviceChangeFrame);
             deviceChangeFrame = requestAnimationFrame(async () => {
-                console.log('🔄 Audio devices changed - refreshing...');
+                console.log('ðŸ”„ Audio devices changed - refreshing...');
                 // Give OS time to finish routing (especially important on mobile)
                 await new Promise((resolve) => setTimeout(resolve, isMobileDevice ? 1500 : 500));
                 try {
@@ -16124,50 +16215,52 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getSummary(transcript) {
-    const res = await fetch('/api/summary', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            room_id: roomId,
-            transcript: transcript 
-        })
-    });
+let isTranscriptRecordMode = false;
 
-    const data = await res.json();
-    return data.summary;
-}
-async function leaveRoom() {
-    try {
-        await onMeetingEnd();
-    } catch (e) {
-        console.error('onMeetingEnd error:', e);
-    }
+document.addEventListener('DOMContentLoaded', () => {
+    const comboBtn = document.getElementById('recordTranscriptBtn');
+    const recordBtn = document.getElementById('recordStreamBtn');
+    const captionBtn = document.getElementById('captionBtn');
 
-    socket.disconnect();
-    window.location.href = '/';
-}
+    if (!comboBtn || !recordBtn || !captionBtn) return;
 
+    comboBtn.addEventListener('click', async () => {
+        if (!isTranscriptRecordMode) {
+            transcripts = [];
+            recordBtn.click();
+            captionBtn.click();
 
-async function onMeetingEnd() {
-    try {
-        console.log('onMeetingEnd started');
-
-        const transcript = window.fullTranscript || '';
-        console.log('Transcript:', transcript);
-
-        if (!transcript.trim()) {
-            alert('No transcript available');
+            isTranscriptRecordMode = true;
+            comboBtn.innerHTML = 'Stop Transcript + Record';
             return;
         }
 
-        const summary = await getSummary(transcript);
-        console.log('Summary:', summary);
+        recordBtn.click();
 
-        alert('Meeting Summary:\n\n' + summary);
-    } catch (err) {
-        console.error('onMeetingEnd failed:', err);
-        alert('Summary failed: ' + err.message);
-    }
-}
-window.fullTranscript = "This is a sample meeting where we discussed ML system integration...";
+        if (typeof speechRecognitionStop !== 'undefined') {
+            speechRecognitionStop.click();
+        }
+
+        isTranscriptRecordMode = false;
+        comboBtn.innerHTML = 'Transcript + Record';
+
+        const transcriptText = (transcripts || [])
+            .map(item => item?.text || item || '')
+            .join(' ');
+
+        const res = await fetch('http://localhost:8000/summarize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ room_id: roomId, transcript: transcriptText })
+        });
+
+        const data = await res.json();
+        alert(data.summary);
+    });
+});
+
+// =====================================
+// Ask for summary when user leaves
+// =====================================
+
+
