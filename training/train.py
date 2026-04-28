@@ -125,6 +125,39 @@ def load_bucket_dataset(bucket_name: str, prefix: str = "raw/") -> Dataset:
     return Dataset.from_list(records)
 
 
+def load_local_dataset(local_path: str) -> Dataset:
+    from pathlib import Path
+    p = Path(local_path)
+
+    # Directory of meeting_XXX folders (same layout as bucket)
+    if p.is_dir():
+        records = []
+        for meeting_dir in sorted(p.iterdir()):
+            transcript_file = meeting_dir / "transcript.json"
+            metadata_file = meeting_dir / "metadata.json"
+            if not transcript_file.exists() or not metadata_file.exists():
+                continue
+            try:
+                t_data = json.loads(transcript_file.read_text())
+                m_data = json.loads(metadata_file.read_text())
+                transcript_text = t_data["transcript"] if isinstance(t_data, dict) else t_data
+                records.append({
+                    "id":         str(m_data.get("uid", m_data.get("id", meeting_dir.name))),
+                    "transcript": transcript_text,
+                    "summary":    m_data["summary"],
+                    "source":     meeting_dir.name,
+                })
+            except Exception as e:
+                print(f"[data] SKIP {meeting_dir}: {e}")
+    else:
+        # JSON file with list of records
+        records = json.loads(p.read_text())
+        records = [r for r in records if r.get("transcript") and r.get("summary")]
+
+    print(f"[data] Loaded {len(records)} local records from {local_path}")
+    return Dataset.from_list(records)
+
+
 def tokenize(ds: Dataset, tokenizer) -> Dataset:
     def _tok(batch):
         inputs = tokenizer(
@@ -446,12 +479,14 @@ def main():
                         help="Chameleon bucket name containing raw/meeting_XXX/")
     parser.add_argument("--prefix", default=os.environ.get("DATA_PREFIX", "raw/"),
                         help="Prefix inside the bucket (default: raw/)")
+    parser.add_argument("--local-data", default=None,
+                        help="Path to local data directory or JSON file")
     parser.add_argument("--smoke-test", action="store_true",
                         help="1 epoch, skip gate — just verify the pipeline")
     args = parser.parse_args()
 
-    if not args.bucket:
-        raise SystemExit("ERROR: set BUCKET_NAME env var or pass --bucket")
+    if not args.bucket and not args.local_data:
+        raise SystemExit("ERROR: set BUCKET_NAME env var or pass --bucket / --local-data")
 
     # MLflow setup
     mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
@@ -466,9 +501,12 @@ def main():
 
     # -------- Data --------
     print("\n=== Loading data ===")
-    ds = load_bucket_dataset(args.bucket, prefix=args.prefix)
+    if args.local_data:
+        ds = load_local_dataset(args.local_data)
+    else:
+        ds = load_bucket_dataset(args.bucket, prefix=args.prefix)
     if len(ds) == 0:
-        raise SystemExit("No data found. Check bucket name and prefix.")
+        raise SystemExit("No data found. Check bucket/prefix or local-data path.")
 
     print("\n=== Tokenizing ===")
     tokenizer = BartTokenizer.from_pretrained(CFG["model_name"])
