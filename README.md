@@ -80,11 +80,11 @@ All services are running on the **Chameleon Cloud VM**, but are accessed locally
 
 | Service    | Local URL (via SSH Tunnel) | Runs on Chameleon             |
 | ---------- | -------------------------- | ----------------------------- |
-| MiroTalk   | http://localhost:3000      | Port 3000                     |
-| FastAPI    | http://localhost:8000      | Port 8000                     |
-| Prometheus | http://localhost:9090      | Port 9090                     |
-| Grafana    | http://localhost:3001      | Port 3000 (Grafana container) |
-
+| MiroTalk   | http://localhost/(VM_IP):000      | Port 3000                     |
+| FastAPI    | http://localhost/(VM_IP):8000      | Port 8000                     |
+| Prometheus | http://localhost/(VM_IP):9090      | Port 9090                     |
+| Grafana    | http://localhost/(VM_IP):3001      | Port 3001 (Grafana container) |
+| MLFlow    | http://localhost/(VM_IP):8002      | Port 8002  |      
 ---
 
 ### 💬 Explanation
@@ -104,7 +104,59 @@ localhost:9090   ───────→  Prometheus (9090)
 localhost:3001   ───────→  Grafana (3000)
 ```
 
----
+## WebRTC Error Fix
+
+MiroTalk uses WebRTC for real-time communication (audio/video). Modern browsers require WebRTC applications to run in a **secure context**, otherwise errors such as:
+
+```text
+The browser seems not supported by WebRTC
+
+will occur.
+During deployment on Chameleon Cloud, accessing the application via:
+http://<VM-IP>:3000
+
+caused WebRTC failures because public HTTP is not considered secure.
+
+Solution Used
+We implemented two working solutions to resolve the issue.
+
+Option 1: SSH Port Forwarding (Localhost Access)
+We used SSH tunneling to access the application via localhost:
+ssh -i ~/.ssh/r_mac -L 3000:localhost:3000 cc@<VM-IP>
+
+Then opened:
+http://localhost:3000
+
+Browsers treat localhost as a secure origin, so WebRTC works without requiring HTTPS.
+
+Option 2: HTTPS using Nginx Reverse Proxy
+We also configured HTTPS using a reverse proxy with Nginx.
+Architecture:
+Browser (HTTPS)
+      ↓
+Nginx (SSL termination)
+      ↓
+MiroTalk (localhost:3000)
+
+Access:
+https://<VM-IP>
+
+We generated a self-signed SSL certificate for testing. This enables WebRTC but may show a browser warning.
+
+Final Approach Used
+We used both approaches:
+SSH port forwarding (localhost) for development and debugging
+HTTPS via Nginx for browser-based access without SSH
+
+Result
+After applying these fixes:
+WebRTC browser error was resolved
+Microphone and camera permissions worked
+MiroTalk loaded successfully in all major browsers
+Video conferencing worked as expected
+
+Note
+For production deployment, a domain name with a trusted SSL certificate (e.g., Let's Encrypt) should be used to remove browser warnings completely.
 
 ## 📦 Step 2 — Start MiroTalk (Port 3000)
 
