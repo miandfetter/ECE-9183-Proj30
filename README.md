@@ -59,7 +59,7 @@ In a typical setup, we would connect using:
 ssh -i ~/.ssh/r_mac cc@<VM-IP>
 ```
 
-Due to WebRTC security and networking constraints, the MiroTalk application could not be reliably accessed via the public IP address of the Chameleon Cloud instance.
+OR 
 
 To ensure stable and reliable access, we used **SSH port forwarding**:
 
