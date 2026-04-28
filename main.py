@@ -392,7 +392,7 @@ def generate_summary(transcript: List[TranscriptItem], tokenizer, model):
             attention_mask=inputs["attention_mask"],
             max_new_tokens=60,
             min_length=15,
-            num_beams=5,
+            num_beams=1,
             length_penalty=2.5,
             no_repeat_ngram_size=4,
             early_stopping=True,
