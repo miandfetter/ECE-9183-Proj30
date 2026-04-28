@@ -95,10 +95,11 @@ All services are running on the **Chameleon Cloud VM**, but are accessed locally
 ```text
 Local Machine (Mac)         Chameleon VM
 ---------------------      ---------------------
-localhost:3000   ───────→  MiroTalk (3000)
-localhost:8000   ───────→  FastAPI (8000)
-localhost:9090   ───────→  Prometheus (9090)
-localhost:3001   ───────→  Grafana (3000)
+localhost/(VM_IP):3000   ───────→  MiroTalk (3000)
+localhost/(VM_IP):8000   ───────→  FastAPI (8000)
+localhost/(VM_IP):9090   ───────→  Prometheus (9090)
+localhost/(VM_IP):3001   ───────→  Grafana (3001)
+ocalhost/(VM_IP):8002   ───────→  Mlflow (8002)
 ```
 
 ## WebRTC Error Fix
