@@ -39,7 +39,7 @@ def main():
         f"-e AWS_ACCESS_KEY_ID={AWS_KEY} "
         f"-e AWS_SECRET_ACCESS_KEY={AWS_SECRET} "
         f"-e BUCKET_NAME={TRAINING_BUCKET} "
-        f"-e DATA_PREFIX=raw/v1.0 "
+        f"-e DATA_PREFIX=raw/v1.0/ "
         f"-e INFERENCE_SERVER_URL={INFERENCE_URL} "
         f"-v /mnt/data:/mnt/data "
         f"proj30-train:latest"

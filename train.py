@@ -56,7 +56,7 @@ def get_s3_client():
     )
 
 
-def load_bucket_dataset(bucket_name: str, prefix: str = "raw/") -> Dataset:
+def load_bucket_dataset(bucket_name: str, prefix: str = "raw/v1.0") -> Dataset:
     s3 = get_s3_client()
 
     resp = s3.list_objects_v2(
