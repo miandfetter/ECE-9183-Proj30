@@ -32,7 +32,7 @@ from fastapi import Response
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/0")
 MLFLOW_TRACKING_URI = os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
-REGISTERED_MODEL_NAME = "bart-meeting-summarizer"
+REGISTERED_MODEL_NAME = "meeting-summarizer-bart-lora-recovered"
 MODEL_ALIAS = os.environ.get("MODEL_ALIAS", "production")
 BASE_MODEL_NAME = "facebook/bart-large-cnn"
 FALLBACK_MODEL_NAME = os.environ.get("LIVE_MODEL_NAME", "knkarthick/MEETING_SUMMARY")
