@@ -58,7 +58,7 @@ CFG = {
     "precision"               : "bf16-mixed",
 
     # MLflow
-    "mlflow_experiment"       : "proj30-lora-adapter", #"bart-lora-meeting-summarization",
+    "mlflow_experiment"       : "bart-lora-meeting-summarization",
     "registered_model_name"   : "bart-meeting-summarizer",
 
     # Gate
